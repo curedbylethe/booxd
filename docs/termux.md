@@ -108,5 +108,8 @@ EPUB handlers. Confirm the reader opens the saved book.
 
 - `booxd: cannot open …: termux-open not found`: run `pkg install termux-tools`.
 - Nothing opens: check the handler list above and select a default reader.
-- DNS lookup errors naming `127.0.0.1:53`: the pure Go resolver may lack Android
-  DNS configuration. Report the failure; do not rebuild with cgo.
+- DNS lookup errors: booxd uses the first valid nameserver IP in
+  `$PREFIX/etc/resolv.conf` (default prefix `/data/data/com.termux/files/usr`).
+  A missing or invalid file falls back to `8.8.8.8`. Check that file and server
+  reachability. This public fallback ignores network DNS and may fail on captive
+  portals or networks blocking outside DNS; edit the file to choose another server.

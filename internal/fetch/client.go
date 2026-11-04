@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"runtime"
 	"sync"
 	"time"
 )
@@ -141,6 +142,9 @@ func New(opts ...Option) *Client {
 			return http.ErrUseLastResponse
 		},
 	}}
+	if runtime.GOOS == "android" {
+		c.http.Transport = androidTransport()
+	}
 	for _, opt := range opts {
 		opt(c)
 	}
