@@ -56,7 +56,10 @@ func runGet(args []string, stdout, stderr io.Writer, resolve resolveFunc, newCli
 	if *verbose {
 		log = stderr
 	}
-	client := newClient(cfg, log, jar)
+	pageTimeout := cfg.RequestTimeout
+	clientConfig := cfg
+	clientConfig.RequestTimeout = 0
+	client := newClient(clientConfig, log, jar)
 	ctx := context.Background()
 	base, err := resolve(ctx, cfg, *override, client)
 	if err != nil {
@@ -71,7 +74,6 @@ func runGet(args []string, stdout, stderr io.Writer, resolve resolveFunc, newCli
 		return 2
 	}
 
-	pageTimeout := cfg.RequestTimeout
 	pageCtx, cancel := context.WithTimeout(ctx, pageTimeout)
 	response, err := client.Get(pageCtx, bookURL)
 	cancel()
@@ -97,6 +99,11 @@ func runGet(args []string, stdout, stderr io.Writer, resolve resolveFunc, newCli
 		}
 	}
 	if option == nil {
+		if !jarHasCookiesFor(jar, bookURL) {
+			book, _ := url.Parse(bookURL)
+			_, _ = fmt.Fprintf(stderr, "booxd: downloads need a signed-in session; cookie file has no cookies for mirror host %s. Use --mirror URL to choose a mirror matching the cookie domain: %s\n", book.Host, bookURL)
+			return 1
+		}
 		_, _ = fmt.Fprintf(stderr, "booxd: downloads need a signed-in session: %s\n", bookURL)
 		return 1
 	}
@@ -107,10 +114,7 @@ func runGet(args []string, stdout, stderr io.Writer, resolve resolveFunc, newCli
 		return 1
 	}
 
-	transferConfig := cfg
-	transferConfig.RequestTimeout = 0
-	transfer := newClient(transferConfig, log, jar)
-	path, err := down.Download(ctx, transfer, down.Request{
+	path, err := down.Download(ctx, client, down.Request{
 		URL:      downloadURL,
 		Dir:      cfg.DownloadDir,
 		Name:     fallbackName(bookID, detail.Format),
@@ -126,6 +130,11 @@ func runGet(args []string, stdout, stderr io.Writer, resolve resolveFunc, newCli
 	}
 	_, _ = fmt.Fprintf(stdout, "saved %s\n", path)
 	return 0
+}
+
+func jarHasCookiesFor(jar http.CookieJar, rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	return err == nil && len(jar.Cookies(u)) > 0
 }
 
 func resolveDownloadURL(base, href string) (string, error) {

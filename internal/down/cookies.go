@@ -28,11 +28,12 @@ func LoadJar(path string) (http.CookieJar, error) {
 	scanner.Buffer(make([]byte, 4096), 1024*1024)
 	for lineNumber := 1; scanner.Scan(); lineNumber++ {
 		line := scanner.Text()
-		httpOnly := strings.HasPrefix(line, "#HttpOnly_")
+		httpOnly := false
 		if line == "" {
 			continue
 		}
 		if strings.HasPrefix(line, "#HttpOnly_") {
+			httpOnly = true
 			line = strings.TrimPrefix(line, "#HttpOnly_")
 		} else if strings.HasPrefix(line, "#") {
 			continue

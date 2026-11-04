@@ -68,6 +68,42 @@ func TestResumeSendsRangeAndAppends(t *testing.T) {
 	assertMissing(t, got+".part")
 }
 
+func TestResumeRejectsInvalidContentRange(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		contentRange string
+		wantError    string
+	}{
+		{name: "wrong start", contentRange: "bytes 4-9/10", wantError: "invalid Content-Range start"},
+		{name: "wrong total", contentRange: "bytes 5-9/12", wantError: "partial cleared"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("Range") == "" {
+					w.Header().Set("Content-Length", "0")
+					return
+				}
+				w.Header().Set("Content-Range", test.contentRange)
+				w.Header().Set("Content-Length", "5")
+				w.WriteHeader(http.StatusPartialContent)
+				_, _ = io.WriteString(w, "world")
+			}))
+			defer server.Close()
+			dir := t.TempDir()
+			part := filepath.Join(dir, "book.epub.part")
+			if err := os.WriteFile(part, []byte("hello"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := Download(context.Background(), downClient(), Request{URL: server.URL + "/book.epub", Dir: dir})
+			if err == nil || !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("error = %v, want containing %q", err, test.wantError)
+			}
+			assertFile(t, part, "")
+			assertMissing(t, filepath.Join(dir, "book.epub"))
+		})
+	}
+}
+
 func TestServerIgnoringRangeRestarts(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Length", "5")
@@ -265,6 +301,37 @@ func TestNameCannotEscapeDir(t *testing.T) {
 	dir := t.TempDir()
 	got, err := Download(context.Background(), downClient(), Request{URL: server.URL + "/fallback", Dir: dir})
 	if err != nil || got != filepath.Join(dir, "evil") {
+		t.Fatalf("path = %q, error = %v", got, err)
+	}
+}
+
+func TestNameRejectsControlCharacters(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Disposition", "attachment; filename*=UTF-8''%1b%5b2Jx.epub")
+		w.Header().Set("Content-Length", "1")
+		_, _ = io.WriteString(w, "x")
+	}))
+	defer server.Close()
+	dir := t.TempDir()
+	_, err := Download(context.Background(), downClient(), Request{URL: server.URL + "/fallback.epub", Dir: dir})
+	if err == nil || !strings.Contains(err.Error(), "filename is empty or invalid") {
+		t.Fatalf("error = %v", err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("directory entries = %v, error = %v", entries, err)
+	}
+}
+
+func TestBareURLPathUsesFallbackName(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "1")
+		_, _ = io.WriteString(w, "x")
+	}))
+	defer server.Close()
+	dir := t.TempDir()
+	got, err := Download(context.Background(), downClient(), Request{URL: server.URL + "/x/0/0", Dir: dir, Name: "42.epub"})
+	if err != nil || got != filepath.Join(dir, "42.epub") {
 		t.Fatalf("path = %q, error = %v", got, err)
 	}
 }

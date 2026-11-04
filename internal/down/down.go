@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/curedbylethe/booxd/internal/fetch"
 )
@@ -41,7 +42,6 @@ func Download(ctx context.Context, client *fetch.Client, req Request) (string, e
 	if err := os.MkdirAll(req.Dir, 0o755); err != nil {
 		return "", err
 	}
-	var retried416 bool
 	requestURL := initialURL
 	for {
 		// A discovery request resolves Content-Disposition before choosing the
@@ -99,25 +99,26 @@ func Download(ctx context.Context, client *fetch.Client, req Request) (string, e
 			_ = stream.Body.Close()
 			return "", responseError(stream.StatusCode)
 		}
-		if _, statErr := os.Stat(final); statErr == nil {
-			_ = stream.Body.Close()
-			return final, ErrExists
-		} else if !os.IsNotExist(statErr) {
-			_ = stream.Body.Close()
-			return "", statErr
-		}
 		file, err := os.OpenFile(part, os.O_CREATE|os.O_WRONLY, 0o644)
 		if err != nil {
 			_ = stream.Body.Close()
 			return "", err
 		}
-		info, err := file.Stat()
-		if err != nil {
-			_ = file.Close()
-			_ = stream.Body.Close()
-			return "", err
+		var rangeTotal int64
+		var rangeTotalKnown bool
+		if stream.StatusCode == http.StatusPartialContent {
+			start, total, known, rangeErr := parseContentRange(stream.Header.Get("Content-Range"))
+			if rangeErr != nil || start != have {
+				_ = file.Truncate(0)
+				_ = file.Close()
+				_ = stream.Body.Close()
+				if rangeErr != nil {
+					return "", rangeErr
+				}
+				return "", fmt.Errorf("invalid Content-Range start %d; expected %d", start, have)
+			}
+			rangeTotal, rangeTotalKnown = total, known
 		}
-		have = info.Size()
 		switch stream.StatusCode {
 		case http.StatusPartialContent:
 			if _, err := file.Seek(have, io.SeekStart); err != nil {
@@ -141,7 +142,13 @@ func Download(ctx context.Context, client *fetch.Client, req Request) (string, e
 			total, ok := unsatisfiedLength(stream.Header.Get("Content-Range"))
 			_ = stream.Body.Close()
 			if ok && have == total {
-				_ = file.Close()
+				if err := file.Sync(); err != nil {
+					_ = file.Close()
+					return "", err
+				}
+				if err := file.Close(); err != nil {
+					return "", err
+				}
 				if err := renamePart(part, final); err != nil {
 					return "", err
 				}
@@ -149,16 +156,11 @@ func Download(ctx context.Context, client *fetch.Client, req Request) (string, e
 				progress.finish()
 				return final, nil
 			}
-			if retried416 {
-				_ = file.Close()
-				return "", errors.New("range retry failed after 416 response")
-			}
 			if err := file.Truncate(0); err != nil {
 				_ = file.Close()
 				return "", err
 			}
 			_ = file.Close()
-			retried416 = true
 			requestURL = finalURL
 			continue
 		}
@@ -176,6 +178,9 @@ func Download(ctx context.Context, client *fetch.Client, req Request) (string, e
 		total := int64(-1)
 		if length >= 0 {
 			total = length + have
+			if stream.StatusCode == http.StatusPartialContent && rangeTotalKnown {
+				total = rangeTotal
+			}
 		}
 		progress := newProgress(req.Progress, total, have)
 		written, copyErr := io.CopyBuffer(progressWriter{file: file, progress: progress}, stream.Body, make([]byte, 32*1024))
@@ -193,6 +198,15 @@ func Download(ctx context.Context, client *fetch.Client, req Request) (string, e
 				return "", fmt.Errorf("truncated download: wrote %d of %d bytes; partial kept at %s", written, length, part)
 			}
 			return "", fmt.Errorf("download size mismatch: wrote %d bytes; expected %d", written, length)
+		}
+		if stream.StatusCode == http.StatusPartialContent && rangeTotalKnown && have+written != rangeTotal {
+			_ = file.Truncate(0)
+			_ = file.Close()
+			return "", fmt.Errorf("download size mismatch: expected %d bytes total, got %d; partial cleared at %s", rangeTotal, have+written, part)
+		}
+		if err := file.Sync(); err != nil {
+			_ = file.Close()
+			return "", err
 		}
 		if err := file.Close(); err != nil {
 			return "", err
@@ -258,7 +272,7 @@ func responseName(header http.Header, u *url.URL, fallback string) (string, erro
 			return safeName(params["filename"])
 		}
 	}
-	if name := pathName(u); name != "" {
+	if name := pathName(u); filepath.Ext(name) != "" {
 		return safeName(name)
 	}
 	return safeName(fallback)
@@ -278,7 +292,7 @@ func pathName(u *url.URL) string {
 
 func safeName(candidate string) (string, error) {
 	name := filepath.Base(candidate)
-	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\\`) {
+	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\\`) || strings.ContainsFunc(name, unicode.IsControl) {
 		return "", errors.New("download filename is empty or invalid")
 	}
 	return name, nil
@@ -291,6 +305,37 @@ func unsatisfiedLength(value string) (int64, bool) {
 	}
 	total, err := strconv.ParseInt(length, 10, 64)
 	return total, err == nil && total >= 0
+}
+
+func parseContentRange(value string) (start, total int64, totalKnown bool, err error) {
+	unit, rangeValue, ok := strings.Cut(value, " ")
+	if !ok || unit != "bytes" {
+		return 0, 0, false, fmt.Errorf("invalid Content-Range %q", value)
+	}
+	byteRange, totalValue, ok := strings.Cut(rangeValue, "/")
+	if !ok {
+		return 0, 0, false, fmt.Errorf("invalid Content-Range %q", value)
+	}
+	startValue, endValue, ok := strings.Cut(byteRange, "-")
+	if !ok {
+		return 0, 0, false, fmt.Errorf("invalid Content-Range %q", value)
+	}
+	start, err = strconv.ParseInt(startValue, 10, 64)
+	if err != nil || start < 0 {
+		return 0, 0, false, fmt.Errorf("invalid Content-Range %q", value)
+	}
+	end, err := strconv.ParseInt(endValue, 10, 64)
+	if err != nil || end < start {
+		return 0, 0, false, fmt.Errorf("invalid Content-Range %q", value)
+	}
+	if totalValue == "*" {
+		return start, 0, false, nil
+	}
+	total, err = strconv.ParseInt(totalValue, 10, 64)
+	if err != nil || total <= end {
+		return 0, 0, false, fmt.Errorf("invalid Content-Range %q", value)
+	}
+	return start, total, true, nil
 }
 
 func renamePart(part, final string) error {
@@ -325,7 +370,7 @@ func newProgress(writer io.Writer, total, done int64) *progress {
 	return &progress{writer: writer, total: total, done: done, last: -1}
 }
 
-func (p *progress) advance(n int64) {
+func (p *progress) advance() {
 	if p.writer == nil || p.total <= 0 {
 		return
 	}
@@ -354,6 +399,6 @@ type progressWriter struct {
 func (w progressWriter) Write(data []byte) (int, error) {
 	n, err := w.file.Write(data)
 	w.progress.done += int64(n)
-	w.progress.advance(int64(n))
+	w.progress.advance()
 	return n, err
 }
