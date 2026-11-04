@@ -2,10 +2,13 @@ GO ?= go
 BINARY := booxd
 DIST := dist
 
-.PHONY: build vet test lint ci clean
+.PHONY: build android vet test lint ci clean
 
 build:
 	CGO_ENABLED=0 $(GO) build -o $(DIST)/$(BINARY) .
+
+android:
+	CGO_ENABLED=0 GOOS=android GOARCH=arm64 $(GO) build -o $(DIST)/$(BINARY)-android-arm64 .
 
 vet:
 	$(GO) vet ./...

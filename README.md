@@ -106,6 +106,7 @@ puts that seed on cooldown for one hour. Selection and cooldowns persist in
 ## Building
 
 Use Go 1.25 or newer. `make build` produces `dist/booxd` with `CGO_ENABLED=0`.
+`make android` produces `dist/booxd-android-arm64` for Termux on Android arm64.
 
 ## Testing and linting
 
