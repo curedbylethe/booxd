@@ -46,7 +46,7 @@ func TestRun(t *testing.T) {
 		{name: "help", args: []string{"search", "-h"}, code: 2, err: help},
 		{name: "tui help", args: []string{"tui", "-h"}, code: 2, err: "usage: booxd tui [flags]\n  -mono\n    \tdisable colour\n"},
 		{name: "tui unknown flag", args: []string{"tui", "--bogus"}, code: 2, err: "flag provided but not defined: -bogus\nusage: booxd tui [flags]\n  -mono\n    \tdisable colour\n"},
-		{name: "get", args: []string{"get"}, code: 1, out: "booxd: get is not implemented yet\n"},
+		{name: "get", args: []string{"get"}, code: 2, err: "usage: booxd get [flags] <id>\nflags must precede the id\n  -config string\n    \tconfig file path\n  -cookies string\n    \tNetscape cookie file; required for a download\n  -mirror string\n    \tbase URL; skip mirror discovery\n  -verbose\n    \tlog each fetch attempt to stderr\n"},
 		{name: "serve", args: []string{"serve"}, code: 1, out: "booxd: serve is not implemented yet\n"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
