@@ -1,6 +1,7 @@
 package fetch
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -79,11 +80,24 @@ func WithProxy(proxy *url.URL) Option {
 	}
 }
 
-// WithTimeout sets the request timeout. A non-positive value keeps the default.
+// WithTimeout sets the request timeout. Zero disables the timeout; negative keeps the default.
 func WithTimeout(timeout time.Duration) Option {
 	return func(c *Client) {
-		if timeout > 0 {
+		if timeout == 0 {
+			c.http.Timeout = 0
+		} else if timeout > 0 {
 			c.http.Timeout = timeout
+		} else {
+			c.http.Timeout = DefaultTimeout
+		}
+	}
+}
+
+// WithJar sets the cookie jar used for requests. A nil jar keeps the default.
+func WithJar(jar http.CookieJar) Option {
+	return func(c *Client) {
+		if jar != nil {
+			c.http.Jar = jar
 		}
 	}
 }
@@ -137,29 +151,60 @@ type Response struct {
 	Body       []byte
 }
 
-// Get reads and closes a response before releasing the host's request slot.
-// An interrupted 429 backoff returns the last response rather than a context error.
-func (c *Client) Get(ctx context.Context, rawURL string) (*Response, error) {
+// Stream contains an HTTP response whose body remains live until closed.
+type Stream struct {
+	StatusCode int
+	Header     http.Header
+	Body       io.ReadCloser
+}
+
+type releaseBody struct {
+	io.ReadCloser
+	once    sync.Once
+	release func()
+	err     error
+}
+
+func (b *releaseBody) Close() error {
+	b.once.Do(func() {
+		b.err = b.ReadCloser.Close()
+		b.release()
+	})
+	return b.err
+}
+
+func bufferedStream(result *Response) *Stream {
+	return &Stream{StatusCode: result.StatusCode, Header: result.Header, Body: io.NopCloser(bytes.NewReader(result.Body))}
+}
+
+// Open sends a request and returns its unread response body. The host slot
+// stays held until Body.Close. Open never consults the cache lookup.
+func (c *Client) Open(ctx context.Context, rawURL string, header http.Header) (*Stream, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return nil, err
 	}
-	if c.lookup != nil {
-		if status, body, ok := c.lookup(ctx, rawURL); ok {
-			return &Response{StatusCode: status, Body: body}, nil
-		}
-	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return nil, err
+	}
+	if header != nil {
+		req.Header = header.Clone()
 	}
 	req.Header.Set("User-Agent", c.userAgent)
 
 	state, _ := c.hosts.LoadOrStore(u.Host, &hostState{})
 	st := state.(*hostState)
 	st.mu.Lock()
-	defer st.mu.Unlock()
+	locked := true
+	release := func() {
+		if locked {
+			locked = false
+			st.mu.Unlock()
+		}
+	}
 	if c.clock.Now().Before(st.unhealthyUntil) {
+		release()
 		return nil, fmt.Errorf("%w: %s", ErrHostUnhealthy, u.Host)
 	}
 	// Hold the host slot across backoff so other requests cannot bypass it.
@@ -173,8 +218,10 @@ func (c *Client) Get(ctx context.Context, rawURL string) (*Response, error) {
 			}
 			if err := c.clock.Wait(ctx, d); err != nil {
 				if last429 != nil {
-					return last429, nil
+					release()
+					return bufferedStream(last429), nil
 				}
+				release()
 				return nil, err
 			}
 			waited += d
@@ -185,15 +232,18 @@ func (c *Client) Get(ctx context.Context, rawURL string) (*Response, error) {
 		st.next = c.clock.Now().Add(c.interval)
 		resp, err := c.http.Do(req)
 		if err != nil {
+			release()
 			return nil, err
 		}
-		body, err := io.ReadAll(resp.Body)
-		_ = resp.Body.Close()
-		if err != nil {
-			return nil, err
-		}
-		result := &Response{StatusCode: resp.StatusCode, Header: resp.Header.Clone(), Body: body}
+		result := &Response{StatusCode: resp.StatusCode, Header: resp.Header.Clone()}
 		if result.StatusCode == http.StatusTooManyRequests {
+			body, readErr := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			if readErr != nil {
+				release()
+				return nil, readErr
+			}
+			result.Body = body
 			last429 = result
 			st.streak++
 			wait := retryWait(result.Header, st.streak, c.clock.Now())
@@ -203,22 +253,30 @@ func (c *Client) Get(ctx context.Context, rawURL string) (*Response, error) {
 				st.next = deadline
 			}
 			if attempt == maxAttempts {
-				return result, nil
+				release()
+				return bufferedStream(result), nil
 			}
 			if c.verbose != nil {
 				_, _ = fmt.Fprintf(c.verbose, "fetch: host=%s status=%d waiting=%s\n", u.Host, result.StatusCode, wait)
 			}
 			if err := c.clock.Wait(ctx, wait); err != nil {
-				return result, nil
+				release()
+				return bufferedStream(result), nil
 			}
 			waited = wait
 			status = fmt.Sprint(result.StatusCode)
 			continue
 		}
-		last429 = nil
 		st.streak = 0
+		last429 = nil
 		if result.StatusCode >= 500 && result.StatusCode <= 599 {
 			if attempt < maxAttempts {
+				_, readErr := io.Copy(io.Discard, resp.Body)
+				_ = resp.Body.Close()
+				if readErr != nil {
+					release()
+					return nil, readErr
+				}
 				wait := serverErrorWait(attempt)
 				if c.verbose != nil {
 					_, _ = fmt.Fprintf(c.verbose, "fetch: host=%s status=%d waiting=%s\n", u.Host, result.StatusCode, wait)
@@ -229,12 +287,53 @@ func (c *Client) Get(ctx context.Context, rawURL string) (*Response, error) {
 					continue
 				}
 			}
+			if resp.Body != nil {
+				_ = resp.Body.Close()
+			}
+			release()
 			return nil, fmt.Errorf("fetch: %s returned %d %s after %d attempts", u.Host, result.StatusCode, http.StatusText(result.StatusCode), attempt)
+		}
+		if result.StatusCode == http.StatusForbidden {
+			body, readErr := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			if readErr != nil {
+				release()
+				return nil, readErr
+			}
+			result.Body = body
 		}
 		if marker, ok := challenge(result); ok {
 			st.unhealthyUntil = c.clock.Now().Add(unhealthyFor)
+			release()
 			return nil, fmt.Errorf("%w: %s (%s)", ErrHostUnhealthy, u.Host, marker)
 		}
-		return result, nil
+		if result.Body != nil {
+			release()
+			return bufferedStream(result), nil
+		}
+		return &Stream{StatusCode: result.StatusCode, Header: result.Header, Body: &releaseBody{ReadCloser: resp.Body, release: release}}, nil
 	}
+}
+
+// Get reads and closes a response before releasing the host's request slot.
+// An interrupted 429 backoff returns the last response rather than a context error.
+func (c *Client) Get(ctx context.Context, rawURL string) (*Response, error) {
+	if _, err := url.Parse(rawURL); err != nil {
+		return nil, err
+	}
+	if c.lookup != nil {
+		if status, body, ok := c.lookup(ctx, rawURL); ok {
+			return &Response{StatusCode: status, Body: body}, nil
+		}
+	}
+	stream, err := c.Open(ctx, rawURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	body, readErr := io.ReadAll(stream.Body)
+	_ = stream.Body.Close()
+	if readErr != nil {
+		return nil, readErr
+	}
+	return &Response{StatusCode: stream.StatusCode, Header: stream.Header, Body: body}, nil
 }
