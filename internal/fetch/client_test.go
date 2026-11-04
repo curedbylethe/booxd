@@ -499,3 +499,46 @@ func TestGetCacheHitOnUnhealthyHost(t *testing.T) {
 		t.Fatalf("response %v error %v calls %d", resp, err, calls.Load())
 	}
 }
+
+func TestGet429DeadlineSurvivesCalls(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) <= 3 {
+			w.WriteHeader(429)
+		}
+	}))
+	defer server.Close()
+	clock := &fakeClock{now: time.Unix(1, 0)}
+	client := New(WithClock(clock))
+	resp, err := client.Get(context.Background(), server.URL)
+	if err != nil || resp.StatusCode != 429 {
+		t.Fatalf("response %v error %v", resp, err)
+	}
+	resp, err = client.Get(context.Background(), server.URL)
+	if err != nil || resp.StatusCode != 200 || calls.Load() != 4 || !slices.Equal(clock.waits, []time.Duration{time.Minute, 2 * time.Minute, 4 * time.Minute}) {
+		t.Fatalf("response %v error %v calls %d waits %v", resp, err, calls.Load(), clock.waits)
+	}
+}
+
+func TestGet429InterruptedDeadlineSurvivesCalls(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Retry-After", "1")
+		w.WriteHeader(429)
+	}))
+	defer server.Close()
+	client := New()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	resp, err := client.Get(ctx, server.URL)
+	if err != nil || resp == nil || resp.StatusCode != 429 {
+		t.Fatalf("response %v error %v", resp, err)
+	}
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel2()
+	_, err = client.Get(ctx2, server.URL)
+	if !errors.Is(err, context.DeadlineExceeded) || calls.Load() != 1 {
+		t.Fatalf("error %v calls %d", err, calls.Load())
+	}
+}
