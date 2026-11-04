@@ -139,8 +139,18 @@ func TestProbe(t *testing.T) {
 			if tt.status == 500 {
 				timeout = 2 * time.Second
 			}
-			if got := probe(ctx, client, base, timeout); got != tt.want {
-				t.Fatalf("outcome = %d, want %d", got, tt.want)
+			got, reason := probe(ctx, client, base, timeout)
+			if (got == pass) != (reason == "") {
+				t.Fatalf("outcome=%v reason=%q", got, reason)
+			}
+			if tt.transport != nil && !strings.Contains(reason, tt.transport.Error()) {
+				t.Fatalf("reason=%q", reason)
+			}
+			if tt.status == 200 && tt.want == fail && reason != "no results page" {
+				t.Fatalf("reason=%q", reason)
+			}
+			if got != tt.want {
+				t.Fatalf("outcome = %d, want %d (reason %q)", got, tt.want, reason)
 			}
 			if got := calls.Load(); got != tt.wantCalls {
 				t.Fatalf("requests = %d, want %d", got, tt.wantCalls)
@@ -157,7 +167,7 @@ func TestProbeChallengeIsDead(t *testing.T) {
 		w.WriteHeader(http.StatusForbidden)
 	}))
 	defer server.Close()
-	if got := probe(context.Background(), fetch.New(), server.URL, time.Second); got != dead || calls.Load() != 1 {
-		t.Fatalf("outcome = %v, calls = %d", got, calls.Load())
+	if got, reason := probe(context.Background(), fetch.New(), server.URL, time.Second); got != dead || calls.Load() != 1 {
+		t.Fatalf("outcome = %v, calls = %d (reason %q)", got, calls.Load(), reason)
 	}
 }

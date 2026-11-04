@@ -31,7 +31,7 @@ func resolve(ctx context.Context, c *fetch.Client, statePath string, seeds []str
 		if until := st.DeadUntil[base]; until.After(now) && until.Sub(now) <= cooldown {
 			continue
 		}
-		result := probe(ctx, c, base, timeout)
+		result, reason := probe(ctx, c, base, timeout)
 		if err := ctx.Err(); err != nil {
 			return "", err
 		}
@@ -43,9 +43,9 @@ func resolve(ctx context.Context, c *fetch.Client, statePath string, seeds []str
 			return base, nil
 		case dead:
 			st.DeadUntil[base] = now.Add(cooldown)
-			tried = append(tried, base+" (dead)")
+			tried = append(tried, base+" (dead: "+reason+")")
 		case fail:
-			tried = append(tried, base+" (fail)")
+			tried = append(tried, base+" (fail: "+reason+")")
 		}
 	}
 	if err := ctx.Err(); err != nil {
