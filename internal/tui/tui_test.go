@@ -134,12 +134,13 @@ func TestRunScreenFailureKeepsPreviousResults(t *testing.T) {
 }
 
 func TestRunScreenResizeKeepsSelection(t *testing.T) {
-	sim := newSimulation(t, 100, 30)
+	sim := newSimulation(t, 80, 24)
 	pressRune(sim, 'x')
 	sim.InjectKey(tcell.KeyEnter, 0, tcell.ModNone)
 	for i := 0; i < 3; i++ {
 		sim.InjectKey(tcell.KeyRune, 'j', tcell.ModNone)
 	}
+	sim.SetSize(100, 30)
 	if err := sim.PostEvent(tcell.NewEventResize(100, 30)); err != nil {
 		t.Fatal(err)
 	}
@@ -156,6 +157,24 @@ func TestRunScreenResizeKeepsSelection(t *testing.T) {
 	_, _, attrs := cells[5*width].Style.Decompose()
 	if attrs&tcell.AttrReverse == 0 {
 		t.Fatal("selected row is not reversed after resize")
+	}
+
+	small := newSimulation(t, 80, 24)
+	pressRune(small, 'x')
+	small.InjectKey(tcell.KeyEnter, 0, tcell.ModNone)
+	small.SetSize(79, 24)
+	if err := small.PostEvent(tcell.NewEventResize(79, 24)); err != nil {
+		t.Fatal(err)
+	}
+	small.InjectKey(tcell.KeyRune, 'q', tcell.ModNone)
+	if err := runScreen(context.Background(), small, func(context.Context, string) ([]parse.Book, error) {
+		return booksForTest(1), nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	smallLines, _, smallWidth, smallHeight := simLines(small)
+	if smallWidth != 79 || smallHeight != 24 || !strings.Contains(smallLines[0], "need at least 80x24") {
+		t.Fatalf("small resize frame=%dx%d row=%q", smallWidth, smallHeight, smallLines[0])
 	}
 }
 
