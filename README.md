@@ -5,19 +5,29 @@ This repository is the skeleton for searching, inspecting, and fetching books.
 
 ## Status
 
-All five commands are stubs. They print "not implemented yet" and exit 1; nothing
-talks to the network. Mirror discovery, parsing, downloads, and the TUI come later.
+`search` discovers a mirror, then prints "not implemented yet" and exits 1. It
+does not fetch search results yet. The other four commands remain stubs: they print
+"not implemented yet" and exit 1. Parsing, downloads, and the TUI come later.
 No arguments prints usage and exits 2; an unknown command also exits 2.
 
 ## Commands
 
 | Command | Output today |
 | -- | -- |
-| `booxd search` | `booxd: search is not implemented yet` |
+| `booxd search` | `mirror: <url>` on stderr, then `booxd: search is not implemented yet` on stdout; exit 1 |
 | `booxd get` | `booxd: get is not implemented yet` |
 | `booxd show` | `booxd: show is not implemented yet` |
 | `booxd tui` | `booxd: tui is not implemented yet` |
 | `booxd serve` | `booxd: serve is not implemented yet` |
+
+`booxd search --mirror URL` uses `URL` and skips discovery entirely. Put flags
+before query arguments; `booxd search -h` shows search usage and exits 2.
+
+Discovery probes embedded seeds in order with a five-second timeout per seed. The
+first passing mirror is reused for 24 hours without probing. A 403, 404, or timeout
+puts that seed on cooldown for one hour. Selection and cooldowns persist in
+`booxd/mirror.json` under the platform user cache directory: `$XDG_CACHE_HOME` or
+`$HOME/.cache` on Termux, and `$HOME/Library/Caches` on macOS.
 
 ## Building
 
@@ -36,10 +46,13 @@ Ensure Go's binary installation directory is on `PATH`.
 
 ## Layout
 
-These package skeletons document their future responsibilities:
+Implemented packages:
 
 - `internal/mirror`: mirror seeds, probing, selected-mirror persistence, and cooldown.
-- `internal/fetch`: the single HTTP client, timeouts, per-host serialization, `per_host_interval`, retry/backoff, and cookie jar.
+- `internal/fetch`: the shared HTTP client, context deadlines, and per-host serialization. `per_host_interval`, retry/backoff, and a cookie jar remain planned.
+
+Package skeletons and their planned responsibilities:
+
 - `internal/parse`: HTML into records, without network access.
 - `internal/cache`: disk query cache keys, timestamps, TTL, atomic writes, and sweep.
 - `internal/down`: gated downloads, `.part` resume, size checks, and atomic renames using fetch.
