@@ -16,6 +16,7 @@ the network. `get` downloads one book when supplied with a session cookie file.
 No arguments prints usage and exits 2; an unknown command also exits 2.
 Requests to a host run one at a time, with at least one second between starts.
 The client waits after a 429 and retries a 5xx twice. `--verbose` logs attempts.
+A timeout error names the host, the phase, and the time spent.
 
 ## Commands
 
