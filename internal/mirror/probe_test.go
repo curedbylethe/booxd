@@ -106,7 +106,7 @@ func TestProbe(t *testing.T) {
 				cancel()
 			}
 			timeout := time.Second
-			if tt.wait {
+			if tt.wait || tt.status == 429 {
 				timeout = 20 * time.Millisecond
 			}
 			if got := probe(ctx, fetch.New(), base, timeout); got != tt.want {
@@ -116,5 +116,18 @@ func TestProbe(t *testing.T) {
 				t.Fatalf("requests = %d, want %d", got, tt.wantCalls)
 			}
 		})
+	}
+}
+
+func TestProbeChallengeIsDead(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Server", "ddos-guard")
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+	if got := probe(context.Background(), fetch.New(), server.URL, time.Second); got != dead || calls.Load() != 1 {
+		t.Fatalf("outcome = %v, calls = %d", got, calls.Load())
 	}
 }

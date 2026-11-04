@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -85,7 +86,7 @@ func TestGetStatus(t *testing.T) {
 				_, _ = w.Write([]byte("exact body\x00\n"))
 			}))
 			t.Cleanup(server.Close)
-			resp, err := New().Get(context.Background(), server.URL)
+			resp, err := New(WithClock(&fakeClock{now: time.Unix(1, 0)})).Get(context.Background(), server.URL)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -277,5 +278,81 @@ func TestGetDifferentHosts(t *testing.T) {
 	}
 	if len(clock.waits) != 0 {
 		t.Fatalf("waits = %v", clock.waits)
+	}
+}
+
+func TestGet429Backoff(t *testing.T) {
+	for _, tt := range []struct {
+		name, header string
+		success      bool
+		waits        []time.Duration
+		wantCalls    int32
+	}{
+		{"header", "2", true, []time.Duration{2 * time.Second}, 2},
+		{"exhausted", "", false, []time.Duration{time.Minute, 2 * time.Minute}, 3},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				n := calls.Add(1)
+				if tt.success && n > 1 {
+					return
+				}
+				if tt.header != "" {
+					w.Header().Set("Retry-After", tt.header)
+				}
+				w.WriteHeader(429)
+			}))
+			defer server.Close()
+			clock := &fakeClock{now: time.Unix(1, 0)}
+			resp, err := New(WithClock(clock)).Get(context.Background(), server.URL)
+			wantStatus := 429
+			if tt.success {
+				wantStatus = 200
+			}
+			if err != nil || resp.StatusCode != wantStatus || calls.Load() != tt.wantCalls || !slices.Equal(clock.waits, tt.waits) {
+				t.Fatalf("response %v error %v calls %d waits %v", resp, err, calls.Load(), clock.waits)
+			}
+		})
+	}
+}
+
+func TestGet429InterruptedReturnsResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(429) }))
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	resp, err := New().Get(ctx, server.URL)
+	if err != nil || resp == nil || resp.StatusCode != 429 {
+		t.Fatalf("response %v error %v", resp, err)
+	}
+}
+
+func TestGetChallengeMarksUnhealthy(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) == 1 {
+			w.Header().Set("Server", "ddos-guard")
+			w.WriteHeader(403)
+		}
+	}))
+	defer server.Close()
+	clock := &fakeClock{now: time.Unix(1, 0)}
+	client := New(WithClock(clock))
+	for range 2 {
+		_, err := client.Get(context.Background(), server.URL)
+		if !errors.Is(err, ErrHostUnhealthy) || !strings.Contains(err.Error(), strings.TrimPrefix(server.URL, "http://")) {
+			t.Fatalf("error %v", err)
+		}
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("calls %d", calls.Load())
+	}
+	if err := clock.Wait(context.Background(), 61*time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := client.Get(context.Background(), server.URL)
+	if err != nil || resp.StatusCode != 200 || calls.Load() != 2 {
+		t.Fatalf("response %v error %v calls %d", resp, err, calls.Load())
 	}
 }
