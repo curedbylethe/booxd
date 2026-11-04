@@ -242,10 +242,11 @@ func (c *Client) Open(ctx context.Context, rawURL string, header http.Header) (*
 			_, _ = fmt.Fprintf(c.verbose, "fetch: host=%s attempt=%d status=%s wait=%s\n", u.Host, attempt, status, waited)
 		}
 		st.next = c.clock.Now().Add(c.interval)
+		started := time.Now()
 		resp, err := c.http.Do(req)
 		if err != nil {
 			release()
-			return nil, err
+			return nil, timeoutError(u.Host, "connecting or waiting for a response", started, err)
 		}
 		result := &Response{StatusCode: resp.StatusCode, Header: resp.Header.Clone()}
 		if result.StatusCode == http.StatusTooManyRequests {
@@ -327,10 +328,21 @@ func (c *Client) Open(ctx context.Context, rawURL string, header http.Header) (*
 	}
 }
 
+// timeoutError names the host, phase and time spent when err is a timeout, so a
+// slow network reads differently from a refused one. It keeps err for errors.Is.
+func timeoutError(host, phase string, started time.Time, err error) error {
+	var timeout interface{ Timeout() bool }
+	if errors.Is(err, context.DeadlineExceeded) || errors.As(err, &timeout) && timeout.Timeout() {
+		return fmt.Errorf("fetch: %s timed out %s after %s: %w", host, phase, time.Since(started).Round(100*time.Millisecond), err)
+	}
+	return err
+}
+
 // Get reads and closes a response before releasing the host's request slot.
 // An interrupted 429 backoff returns the last response rather than a context error.
 func (c *Client) Get(ctx context.Context, rawURL string) (*Response, error) {
-	if _, err := url.Parse(rawURL); err != nil {
+	u, err := url.Parse(rawURL)
+	if err != nil {
 		return nil, err
 	}
 	if c.lookup != nil {
@@ -342,10 +354,11 @@ func (c *Client) Get(ctx context.Context, rawURL string) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
+	started := time.Now()
 	body, readErr := io.ReadAll(stream.Body)
 	_ = stream.Body.Close()
 	if readErr != nil {
-		return nil, readErr
+		return nil, timeoutError(u.Host, "reading the response", started, readErr)
 	}
 	return &Response{StatusCode: stream.StatusCode, Header: stream.Header, Body: body}, nil
 }

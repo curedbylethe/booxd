@@ -146,6 +146,11 @@ func TestGetTimeout(t *testing.T) {
 	if resp != nil || err == nil {
 		t.Fatalf("response = %#v, error = %v; want timeout", resp, err)
 	}
+	// The probe classifies timeouts with errors.Is, so the wrapper must keep it true.
+	host := server.Listener.Addr().String()
+	if !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), "fetch: "+host+" timed out connecting or waiting for a response after ") {
+		t.Fatalf("error = %v; want named timeout wrapping context.DeadlineExceeded", err)
+	}
 	if got := New(WithTimeout(0)).http.Timeout; got != 0 {
 		t.Fatalf("zero timeout = %s, want disabled", got)
 	}
