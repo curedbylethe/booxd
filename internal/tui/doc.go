@@ -1,3 +1,3 @@
-// Package tui owns the tcell screen, input, and redraw using parse, cache, and mirror results.
-// It must not import HTTP code directly.
+// Package tui owns the tcell screen and local book navigation.
+// Search is supplied by the caller, so this package never builds requests.
 package tui
