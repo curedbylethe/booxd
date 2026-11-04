@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -31,6 +32,26 @@ func TestSeeds(t *testing.T) {
 	if got := Seeds()[0]; got != first {
 		t.Fatalf("Seeds reused mutable slice: got %q, want %q", got, first)
 	}
+}
+
+// probeClock advances retry and interval waits without delaying the test suite.
+type probeClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (c *probeClock) Now() time.Time { c.mu.Lock(); defer c.mu.Unlock(); return c.now }
+func (c *probeClock) Wait(ctx context.Context, d time.Duration) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if d >= time.Minute {
+		return context.DeadlineExceeded
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = c.now.Add(d)
+	return nil
 }
 
 type probeTransportFunc func(*http.Request) (*http.Response, error)
@@ -109,10 +130,9 @@ func TestProbe(t *testing.T) {
 			if tt.wait || tt.status == 429 {
 				timeout = 20 * time.Millisecond
 			}
-			client := fetch.New()
+			client := fetch.New(fetch.WithClock(&probeClock{now: time.Unix(1, 0)}))
 			if tt.status == 500 {
 				timeout = 2 * time.Second
-				client = fetch.New(fetch.WithInterval(0))
 			}
 			if got := probe(ctx, client, base, timeout); got != tt.want {
 				t.Fatalf("outcome = %d, want %d", got, tt.want)

@@ -84,7 +84,7 @@ func TestResolve(t *testing.T) {
 			for i := range input {
 				input[i] += "/"
 			}
-			got, err := Resolve(context.Background(), fetch.New(), path, input, now)
+			got, err := Resolve(context.Background(), fetch.New(fetch.WithClock(&probeClock{now: time.Unix(1, 0)})), path, input, now)
 			if tt.selected >= 0 {
 				if err != nil || got != seeds[tt.selected] {
 					t.Fatalf("Resolve = %q, %v; want %q", got, err, seeds[tt.selected])
@@ -221,7 +221,7 @@ func TestResolveIgnoresSaveError(t *testing.T) {
 				_, _ = w.Write([]byte(passMarker))
 			}))
 			t.Cleanup(server.Close)
-			got, err := Resolve(context.Background(), fetch.New(), t.TempDir(), []string{server.URL}, time.Time{})
+			got, err := Resolve(context.Background(), fetch.New(fetch.WithClock(&probeClock{now: time.Unix(1, 0)})), t.TempDir(), []string{server.URL}, time.Time{})
 			if tt.base {
 				if err != nil || got != server.URL {
 					t.Fatalf("Resolve = %q, %v; want %q", got, err, server.URL)
