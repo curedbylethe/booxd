@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -56,7 +57,7 @@ func TestRun(t *testing.T) {
 			calls, clients := 0, 0
 			var gotURL string
 			var created *fetch.Client
-			newClient := func(_ config.Config, w io.Writer) *fetch.Client {
+			newClient := func(_ config.Config, w io.Writer, _ http.CookieJar) *fetch.Client {
 				clients++
 				if (w != nil) != tt.verbose || (w != nil && w != &stderr) {
 					t.Errorf("verbose writer = %v", w)
@@ -170,7 +171,7 @@ func TestSearchCache(t *testing.T) {
 			args = append(args, "test")
 			var out, stderr bytes.Buffer
 			clients, resolves := 0, 0
-			client := func(config.Config, io.Writer) *fetch.Client {
+			client := func(_ config.Config, _ io.Writer, _ http.CookieJar) *fetch.Client {
 				clients++
 				return fetch.New(fetch.WithLookup(func(context.Context, string) (int, []byte, bool) {
 					body := tc.body
@@ -258,7 +259,7 @@ func TestDumpHTML(t *testing.T) {
 			resolve := func(context.Context, config.Config, string, *fetch.Client) (string, error) {
 				return "https://mirror.test", nil
 			}
-			client := func(config.Config, io.Writer) *fetch.Client {
+			client := func(_ config.Config, _ io.Writer, _ http.CookieJar) *fetch.Client {
 				return fetch.New(fetch.WithLookup(func(context.Context, string) (int, []byte, bool) { return tc.status, []byte(tc.body), true }))
 			}
 			code := run([]string{"search", "--dump-html", path, "test"}, &out, &stderr, resolve, client)
@@ -306,7 +307,7 @@ func TestRunConfig(t *testing.T) {
 	var out, stderr bytes.Buffer
 	clients, resolutions := 0, 0
 	wantAgent, wantOverride := "env/2", ""
-	newClient := func(cfg config.Config, _ io.Writer) *fetch.Client {
+	newClient := func(cfg config.Config, _ io.Writer, _ http.CookieJar) *fetch.Client {
 		clients++
 		if cfg.UserAgent != wantAgent {
 			t.Errorf("user agent = %q, want %q", cfg.UserAgent, wantAgent)
