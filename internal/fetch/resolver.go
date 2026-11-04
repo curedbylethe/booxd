@@ -33,11 +33,15 @@ func dnsDialer(server string) *net.Dialer {
 }
 
 func androidTransport() *http.Transport {
+	base, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return nil
+	}
 	prefix := os.Getenv("PREFIX")
 	if prefix == "" {
 		prefix = "/data/data/com.termux/files/usr"
 	}
-	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport := base.Clone()
 	transport.DialContext = dnsDialer(dnsServer(filepath.Join(prefix, "etc", "resolv.conf"))).DialContext
 	return transport
 }
