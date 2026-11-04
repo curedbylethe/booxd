@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/curedbylethe/booxd/internal/cache"
 	"github.com/curedbylethe/booxd/internal/config"
 	"github.com/curedbylethe/booxd/internal/fetch"
 	"github.com/curedbylethe/booxd/internal/mirror"
@@ -73,6 +74,8 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 		configPath := flags.String("config", "", "config file path")
 		page := flags.Int("page", 1, "search result page")
 		dump := flags.String("dump-html", "", "write the fetched page to this path")
+		maxAge := flags.Duration("max-age", cache.DefaultTTL, "maximum age of cached search results")
+		noCache := flags.Bool("no-cache", false, "skip cached search results")
 		verbose := flags.Bool("verbose", false, "log each fetch attempt to stderr")
 		if err := flags.Parse(args[1:]); err != nil {
 			return 2
@@ -91,6 +94,27 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 			_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
 			return 1
 		}
+		var store *cache.Store
+		if dir, pathErr := cache.Path(cfg.CacheDir); pathErr == nil {
+			store = cache.Open(dir)
+			_ = store.Sweep(cache.SweepAge)
+		}
+		var cached cache.Entry
+		hit := false
+		if store != nil && !*noCache {
+			cached, hit = store.Get(query, *page)
+			age := time.Since(cached.FetchedAt)
+			if hit && age >= 0 && age < *maxAge {
+				printCached(stderr, age)
+				if *dump != "" {
+					if err := os.WriteFile(*dump, cached.Body, 0o644); err != nil {
+						_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
+						return 1
+					}
+				}
+				return renderSearch(stdout, stderr, cached.Body)
+			}
+		}
 		var log io.Writer
 		if *verbose {
 			log = stderr
@@ -99,6 +123,10 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 		ctx := context.Background()
 		base, err := resolve(ctx, cfg, *override, client)
 		if err != nil {
+			if hit {
+				printCached(stderr, time.Since(cached.FetchedAt))
+				return renderSearch(stdout, stderr, cached.Body)
+			}
 			_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
 			return 1
 		}
@@ -109,6 +137,10 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 		}
 		resp, err := client.Get(ctx, searchURL)
 		if err != nil {
+			if hit {
+				printCached(stderr, time.Since(cached.FetchedAt))
+				return renderSearch(stdout, stderr, cached.Body)
+			}
 			_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
 			return 1
 		}
@@ -119,22 +151,18 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 			}
 		}
 		if resp.StatusCode != 200 {
+			if hit {
+				printCached(stderr, time.Since(cached.FetchedAt))
+				return renderSearch(stdout, stderr, cached.Body)
+			}
 			_, _ = fmt.Fprintf(stderr, "booxd: search: status %d\n", resp.StatusCode)
 			return 1
 		}
-		books, err := parse.Search(bytes.NewReader(resp.Body))
-		if err != nil {
-			_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
-			return 1
+		code := renderSearch(stdout, stderr, resp.Body)
+		if code == 0 && store != nil {
+			_ = store.Put(cache.Entry{Query: query, Page: *page, Status: resp.StatusCode, FetchedAt: time.Now(), Body: resp.Body})
 		}
-		if len(books) == 0 {
-			_, _ = fmt.Fprintln(stderr, "no results")
-			return 0
-		}
-		for _, b := range books {
-			_, _ = fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\t%s\t%s\n", b.ID, b.Title, b.Author, b.Year, b.Format, b.Size)
-		}
-		return 0
+		return code
 	case "get", "show", "tui", "serve":
 		_, _ = fmt.Fprintf(stdout, "booxd: %s is not implemented yet\n", args[0])
 		return 1
@@ -142,4 +170,39 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 		_, _ = fmt.Fprintf(stderr, "booxd: unknown command %q\n", args[0])
 		return 2
 	}
+}
+
+func renderSearch(stdout, stderr io.Writer, body []byte) int {
+	books, err := parse.Search(bytes.NewReader(body))
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
+		return 1
+	}
+	if len(books) == 0 {
+		_, _ = fmt.Fprintln(stderr, "no results")
+		return 0
+	}
+	for _, b := range books {
+		_, _ = fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\t%s\t%s\n", b.ID, b.Title, b.Author, b.Year, b.Format, b.Size)
+	}
+	return 0
+}
+
+func printCached(w io.Writer, age time.Duration) {
+	if age < 0 {
+		age = 0
+	}
+	var value time.Duration
+	var unit string
+	switch {
+	case age >= 24*time.Hour:
+		value, unit = age/(24*time.Hour), "d"
+	case age >= time.Hour:
+		value, unit = age/time.Hour, "h"
+	case age >= time.Minute:
+		value, unit = age/time.Minute, "m"
+	default:
+		value, unit = age/time.Second, "s"
+	}
+	_, _ = fmt.Fprintf(w, "cached %d%s ago\n", value, unit)
 }
