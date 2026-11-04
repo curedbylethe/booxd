@@ -9,7 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/curedbylethe/booxd/internal/cache"
 	"github.com/curedbylethe/booxd/internal/config"
 	"github.com/curedbylethe/booxd/internal/fetch"
 )
@@ -90,6 +92,76 @@ func TestRun(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSearchCache(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		args       []string
+		fresh      bool
+		resolveErr bool
+		status     int
+		seed       bool
+		wantCached bool
+		wantFetch  bool
+	}{
+		{name: "fresh hit", fresh: true, seed: true, wantCached: true},
+		{name: "no cache", fresh: true, seed: true, args: []string{"--no-cache"}, wantFetch: true},
+		{name: "max age", fresh: true, seed: true, args: []string{"--max-age", "1s"}, wantFetch: true},
+		{name: "resolver fallback", resolveErr: true, seed: true, wantCached: true},
+		{name: "429 fallback", status: 429, seed: true, wantCached: true},
+		{name: "429 miss", status: 429},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cacheDir := t.TempDir()
+			configPath := filepath.Join(t.TempDir(), "config.toml")
+			if err := os.WriteFile(configPath, []byte("cache_dir = \""+cacheDir+"\"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			store := cache.Open(filepath.Join(cacheDir, "booxd", "cache"))
+			if tc.seed {
+				if err := store.Put(cache.Entry{Query: "test", Page: 1, Status: 200, FetchedAt: time.Now().Add(-3 * time.Hour), Body: []byte(card)}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			args := append([]string{"search", "--config", configPath}, tc.args...)
+			args = append(args, "test")
+			var out, stderr bytes.Buffer
+			clients, resolves := 0, 0
+			client := func(config.Config, io.Writer) *fetch.Client {
+				clients++
+				return fetch.New(fetch.WithLookup(func(context.Context, string) (int, []byte, bool) { return statusOr200(tc.status), []byte(card), true }))
+			}
+			resolve := func(context.Context, config.Config, string, *fetch.Client) (string, error) {
+				resolves++
+				if tc.resolveErr {
+					return "", errors.New("offline")
+				}
+				return "https://mirror.test", nil
+			}
+			code := run(args, &out, &stderr, resolve, client)
+			if tc.wantCached {
+				if code != 0 || !strings.HasPrefix(stderr.String(), "cached 3h ago\n") || out.String() != "36451\tTest\t\t2022\tPDF\t51.0 MB\n" {
+					t.Fatalf("cached result: code=%d out=%q err=%q", code, out.String(), stderr.String())
+				}
+			} else if tc.status == 429 && code != 1 {
+				t.Fatalf("429 miss code=%d stderr=%q", code, stderr.String())
+			}
+			if tc.wantFetch && (clients != 1 || resolves != 1) {
+				t.Fatalf("fetch calls clients=%d resolves=%d", clients, resolves)
+			}
+			if tc.fresh && len(tc.args) == 0 && (clients != 0 || resolves != 0) {
+				t.Fatalf("fresh hit made requests: %d/%d", clients, resolves)
+			}
+		})
+	}
+}
+
+func statusOr200(status int) int {
+	if status == 0 {
+		return 200
+	}
+	return status
 }
 
 func TestDumpHTML(t *testing.T) {
