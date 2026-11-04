@@ -418,6 +418,36 @@ func TestGetVerbose(t *testing.T) {
 	}
 }
 
+type observingClock struct {
+	*fakeClock
+	log      *bytes.Buffer
+	snapshot string
+}
+
+func (c *observingClock) Wait(ctx context.Context, d time.Duration) error {
+	c.snapshot = c.log.String()
+	return context.Canceled
+}
+
+func TestGetVerboseLogsBeforeBackoff(t *testing.T) {
+	for _, status := range []int{429, 503} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(status)
+			}))
+			defer server.Close()
+			var log bytes.Buffer
+			clock := &observingClock{fakeClock: &fakeClock{now: time.Unix(1, 0)}, log: &log}
+			_, _ = New(WithClock(clock), WithVerbose(&log)).Get(context.Background(), server.URL)
+			for _, part := range []string{"host=" + strings.TrimPrefix(server.URL, "http://"), fmt.Sprintf("status=%d waiting=", status)} {
+				if !strings.Contains(clock.snapshot, part) {
+					t.Fatalf("missing %q before wait in %q", part, clock.snapshot)
+				}
+			}
+		})
+	}
+}
+
 func TestGet429InterruptedIntervalReturnsResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.Header().Set("Retry-After", "0"); w.WriteHeader(429) }))
 	defer server.Close()

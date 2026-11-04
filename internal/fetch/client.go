@@ -49,7 +49,7 @@ func WithLookup(lookup Lookup) Option { return func(c *Client) { c.lookup = look
 // WithInterval sets the minimum spacing between request starts.
 func WithInterval(d time.Duration) Option { return func(c *Client) { c.interval = d } }
 
-// WithVerbose enables attempt logging to w.
+// WithVerbose enables attempt logging to w. The writer must support concurrent writes.
 func WithVerbose(w io.Writer) Option { return func(c *Client) { c.verbose = w } }
 
 // WithClock sets the clock used for request spacing.
@@ -64,13 +64,12 @@ type hostState struct {
 
 // Client sends requests through a shared transport, one at a time per host.
 type Client struct {
-	http      *http.Client
-	hosts     sync.Map
-	clock     Clock
-	interval  time.Duration
-	verbose   io.Writer
-	verboseMu sync.Mutex
-	lookup    Lookup
+	http     *http.Client
+	hosts    sync.Map
+	clock    Clock
+	interval time.Duration
+	verbose  io.Writer
+	lookup   Lookup
 }
 
 // New returns the shared HTTP client.
@@ -128,6 +127,9 @@ func (c *Client) Get(ctx context.Context, rawURL string) (*Response, error) {
 	var last429 *Response
 	for attempt := 1; ; attempt++ {
 		if d := st.next.Sub(c.clock.Now()); d > 0 {
+			if c.verbose != nil {
+				_, _ = fmt.Fprintf(c.verbose, "fetch: host=%s waiting=%s\n", u.Host, d)
+			}
 			if err := c.clock.Wait(ctx, d); err != nil {
 				if last429 != nil {
 					return last429, nil
@@ -137,9 +139,7 @@ func (c *Client) Get(ctx context.Context, rawURL string) (*Response, error) {
 			waited += d
 		}
 		if c.verbose != nil {
-			c.verboseMu.Lock()
 			_, _ = fmt.Fprintf(c.verbose, "fetch: host=%s attempt=%d status=%s wait=%s\n", u.Host, attempt, status, waited)
-			c.verboseMu.Unlock()
 		}
 		st.next = c.clock.Now().Add(c.interval)
 		resp, err := c.http.Do(req)
@@ -164,6 +164,9 @@ func (c *Client) Get(ctx context.Context, rawURL string) (*Response, error) {
 			if attempt == maxAttempts {
 				return result, nil
 			}
+			if c.verbose != nil {
+				_, _ = fmt.Fprintf(c.verbose, "fetch: host=%s status=%d waiting=%s\n", u.Host, result.StatusCode, wait)
+			}
 			if err := c.clock.Wait(ctx, wait); err != nil {
 				return result, nil
 			}
@@ -176,6 +179,9 @@ func (c *Client) Get(ctx context.Context, rawURL string) (*Response, error) {
 		if result.StatusCode >= 500 && result.StatusCode <= 599 {
 			if attempt < maxAttempts {
 				wait := serverErrorWait(attempt)
+				if c.verbose != nil {
+					_, _ = fmt.Fprintf(c.verbose, "fetch: host=%s status=%d waiting=%s\n", u.Host, result.StatusCode, wait)
+				}
 				if err := c.clock.Wait(ctx, wait); err == nil {
 					waited = wait
 					status = fmt.Sprint(result.StatusCode)

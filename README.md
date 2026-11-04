@@ -25,6 +25,7 @@ The client waits after a 429 and retries a 5xx twice. `--verbose` logs attempts.
 `booxd search --mirror URL` uses `URL` and skips discovery entirely. Put flags
 before query arguments; `booxd search -h` shows search usage and exits 2.
 `booxd search --verbose` logs host, status, and wait for each attempt to stderr.
+It also reports waits before they begin.
 
 Discovery probes embedded seeds in order with a five-second timeout per seed. The
 first passing mirror is reused for 24 hours without probing. A 403, 404, or timeout
