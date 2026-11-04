@@ -129,14 +129,14 @@ func TestSearchPage2(t *testing.T) {
 
 func TestSearchGarbage(t *testing.T) {
 	books, err := Search(strings.NewReader("<html><body>not a search page</body></html>"))
-	if err != nil || len(books) != 0 {
+	if err == nil || len(books) != 0 {
 		t.Fatalf("books: %+v, error: %v", books, err)
 	}
 }
 
 func TestSearchEmptyInput(t *testing.T) {
 	books, err := Search(strings.NewReader(""))
-	if err != nil || len(books) != 0 {
+	if err == nil || len(books) != 0 {
 		t.Fatalf("books: %+v, error: %v", books, err)
 	}
 }
