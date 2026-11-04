@@ -1,0 +1,8 @@
+# Checked 2026-11-01: .org and .se are NXDOMAIN and are omitted.
+# .gl, .gd and .pk answer 403 behind DDoS-Guard from a datacenter IP;
+# they stay listed because the target is Termux on a phone network.
+# .is answered a full search page over HTTPS on 2026-11-04.
+https://annas-archive.is
+https://annas-archive.gl
+https://annas-archive.gd
+https://annas-archive.pk
