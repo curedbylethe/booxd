@@ -5,10 +5,12 @@ This repository is the skeleton for searching, inspecting, and fetching books.
 
 ## Status
 
-`search` loads optional configuration from `config.toml`, fetches one results page and prints parsed book records. It supports
-`--page`, `--dump-html`, and a disk cache with a 24-hour TTL. Cached output prints
+`search` loads optional configuration from `config.toml`, fetches one results
+page, and prints parsed book records. `show` fetches a book page and prints its
+metadata and download options. Search supports `--page`, `--dump-html`, and a
+disk cache with a 24-hour TTL. Cached output prints
 `cached <age> ago` on stderr. Parsing lives in `internal/parse` and never accesses
-the network. The other four commands remain stubs: they print "not implemented
+the network. The other three commands remain stubs: they print "not implemented
 yet" and exit 1. Downloads and the TUI come later.
 No arguments prints usage and exits 2; an unknown command also exits 2.
 Requests to a host run one at a time, with at least one second between starts.
@@ -20,7 +22,7 @@ The client waits after a 429 and retries a 5xx twice. `--verbose` logs attempts.
 | -- | -- |
 | `booxd search [--config PATH] [--mirror URL] [--page N] [--dump-html PATH] [--no-cache] [--max-age DURATION] <query>` | `mirror: <url>` on stderr when using network; one tab-separated row per book on stdout; cached rows print `cached <age> ago` on stderr; `no results` on stderr and exit 0 for a miss; exit 1 for fetch or parse failure |
 | `booxd get` | `booxd: get is not implemented yet` |
-| `booxd show` | `booxd: show is not implemented yet` |
+| `booxd show [--config PATH] [--mirror URL] [--verbose] <id>` | nine labeled metadata lines and download options; all-gated pages print `downloads require a signed-in session`; exit 1 for config, resolve, fetch, status, or parse failure; exit 2 for usage errors |
 | `booxd tui` | `booxd: tui is not implemented yet` |
 | `booxd serve` | `booxd: serve is not implemented yet` |
 
@@ -36,6 +38,19 @@ resolution or fetching fails, search serves the last cached page with its age
 marker. Cache entries older than 30 days are swept at search startup.
 `booxd search --verbose` logs host, status, and wait for each attempt to stderr.
 It also reports waits before they begin.
+
+## Show
+
+`booxd show <id>` fetches `/books/<id>`; `booxd show <id>-<slug>` fetches the
+slug path as given. It prints title, author, publisher, year, language, format,
+size, ISBN, and pages. Missing fields print `-`. Open download options are
+listed; gated options carry ` (requires signed-in session)`. If every option is
+gated, it prints `downloads require a signed-in session`.
+
+Successful detail pages are cached for 24 hours under
+`<cache_dir>/booxd/cache`, keyed by `book:<id>`. A fresh cache hit makes no
+request and prints no `mirror:` line. A stale entry is fetched again. `show`
+does not use or obtain a cookie; it reports the account gate and exits 0.
 
 ## Configuration
 
@@ -88,7 +103,8 @@ Implemented packages:
 - `internal/mirror`: mirror seeds, probing, selected-mirror persistence, and cooldown.
 - `internal/fetch`: the shared HTTP client, per-host throttling, retry/backoff, and cache lookup. A cookie jar remains planned.
 - `internal/cache`: disk query cache with normalized keys, atomic JSON writes, TTL reads, and expiry sweep.
-- `internal/parse`: search HTML into records, without network access.
+- `internal/parse`: search and detail HTML into book metadata and download
+  options, without network access.
 
 Package skeletons and their planned responsibilities:
 
