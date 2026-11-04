@@ -10,13 +10,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/curedbylethe/booxd/internal/config"
 	"github.com/curedbylethe/booxd/internal/fetch"
 )
 
 const card = `<div class="bg-white rounded-lg shadow p-4 mb-4"><h3><a href="/books/36451-test">Test</a></h3><div class="text-sm text-[#666] mt-1">Unknown author · 2022 · PDF · 51.0 MB · Books catalog</div></div>`
 
 func TestRun(t *testing.T) {
-	help := "usage: booxd search [flags] <query>\nflags must precede query arguments\n  -dump-html string\n    \twrite the fetched page to this path\n  -mirror string\n    \tbase URL; skip mirror discovery\n  -page int\n    \tsearch result page (default 1)\n  -verbose\n    \tlog each fetch attempt to stderr\n"
+	help := "usage: booxd search [flags] <query>\nflags must precede query arguments\n  -config string\n    \tconfig file path\n  -dump-html string\n    \twrite the fetched page to this path\n  -mirror string\n    \tbase URL; skip mirror discovery\n  -page int\n    \tsearch result page (default 1)\n  -verbose\n    \tlog each fetch attempt to stderr\n"
 	for _, tt := range []struct {
 		name                          string
 		args                          []string
@@ -46,11 +47,13 @@ func TestRun(t *testing.T) {
 		{name: "serve", args: []string{"serve"}, code: 1, out: "booxd: serve is not implemented yet\n"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			t.Setenv("BOOXD_CONFIG", "")
 			var stdout, stderr bytes.Buffer
 			calls, clients := 0, 0
 			var gotURL string
 			var created *fetch.Client
-			newClient := func(w io.Writer) *fetch.Client {
+			newClient := func(_ config.Config, w io.Writer) *fetch.Client {
 				clients++
 				if (w != nil) != tt.verbose || (w != nil && w != &stderr) {
 					t.Errorf("verbose writer = %v", w)
@@ -61,7 +64,7 @@ func TestRun(t *testing.T) {
 				}))
 				return created
 			}
-			resolve := func(_ context.Context, override string, client *fetch.Client) (string, error) {
+			resolve := func(_ context.Context, _ config.Config, override string, client *fetch.Client) (string, error) {
 				calls++
 				if client != created {
 					t.Error("resolver did not receive shared client")
@@ -106,8 +109,10 @@ func TestDumpHTML(t *testing.T) {
 				path = filepath.Join(path, "missing", "page.html")
 			}
 			var out, stderr bytes.Buffer
-			resolve := func(context.Context, string, *fetch.Client) (string, error) { return "https://mirror.test", nil }
-			client := func(io.Writer) *fetch.Client {
+			resolve := func(context.Context, config.Config, string, *fetch.Client) (string, error) {
+				return "https://mirror.test", nil
+			}
+			client := func(config.Config, io.Writer) *fetch.Client {
 				return fetch.New(fetch.WithLookup(func(context.Context, string) (int, []byte, bool) { return tc.status, []byte(tc.body), true }))
 			}
 			code := run([]string{"search", "--dump-html", path, "test"}, &out, &stderr, resolve, client)
@@ -134,11 +139,52 @@ func TestDumpHTML(t *testing.T) {
 func TestResolveMirrorOverride(t *testing.T) {
 	t.Setenv("HOME", "")
 	t.Setenv("XDG_CACHE_HOME", "")
-	got, err := resolveMirror(context.Background(), "https://mirror.test/", fetch.New())
+	got, err := resolveMirror(context.Background(), config.Config{}, "https://mirror.test/", fetch.New())
 	if err != nil || got != "https://mirror.test" {
 		t.Fatalf("resolveMirror override = %q, %v", got, err)
 	}
-	if _, err := resolveMirror(context.Background(), "", fetch.New()); err == nil {
+	if _, err := resolveMirror(context.Background(), config.Config{}, "", fetch.New()); err == nil {
 		t.Fatal("discovery succeeded without a user cache directory")
+	}
+}
+
+func TestRunConfig(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("BOOXD_CONFIG", "")
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("user_agent = \"file/1\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("BOOXD_USER_AGENT", "env/2")
+	var out, stderr bytes.Buffer
+	clients, resolutions := 0, 0
+	newClient := func(cfg config.Config, _ io.Writer) *fetch.Client {
+		clients++
+		if cfg.UserAgent != "env/2" {
+			t.Errorf("user agent = %q, want env/2", cfg.UserAgent)
+		}
+		return fetch.New(fetch.WithLookup(func(context.Context, string) (int, []byte, bool) { return 200, []byte(card), true }))
+	}
+	resolve := func(_ context.Context, cfg config.Config, override string, _ *fetch.Client) (string, error) {
+		resolutions++
+		if cfg.UserAgent != "env/2" || len(cfg.Mirrors) == 0 || override != "" {
+			t.Errorf("config = %#v, override = %q", cfg, override)
+		}
+		return "https://mirror.test", nil
+	}
+	code := run([]string{"search", "--config", path, "test"}, &out, &stderr, resolve, newClient)
+	if code != 0 || clients != 1 || resolutions != 1 || out.String() == "" {
+		t.Fatalf("code=%d clients=%d resolutions=%d stdout=%q stderr=%q", code, clients, resolutions, out.String(), stderr.String())
+	}
+	badPath := filepath.Join(t.TempDir(), "bad.toml")
+	if err := os.WriteFile(badPath, []byte("request_timeout = \"bad\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	clients, resolutions = 0, 0
+	out.Reset()
+	stderr.Reset()
+	code = run([]string{"search", "--config", badPath, "test"}, &out, &stderr, resolve, newClient)
+	if code != 1 || clients != 0 || resolutions != 0 || out.Len() != 0 || strings.Count(stderr.String(), "\n") != 1 || !strings.Contains(stderr.String(), badPath) || !strings.Contains(stderr.String(), "request_timeout") {
+		t.Fatalf("malformed config: code=%d clients=%d resolutions=%d stdout=%q stderr=%q", code, clients, resolutions, out.String(), stderr.String())
 	}
 }

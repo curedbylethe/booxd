@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/curedbylethe/booxd/internal/config"
 	"github.com/curedbylethe/booxd/internal/fetch"
 	"github.com/curedbylethe/booxd/internal/mirror"
 	"github.com/curedbylethe/booxd/internal/parse"
@@ -21,22 +22,37 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, resolveMirror, newFetchClient))
 }
 
-type resolveFunc func(ctx context.Context, override string, client *fetch.Client) (string, error)
-type clientFunc func(verbose io.Writer) *fetch.Client
+type resolveFunc func(ctx context.Context, cfg config.Config, override string, client *fetch.Client) (string, error)
+type clientFunc func(cfg config.Config, verbose io.Writer) *fetch.Client
 
-func newFetchClient(verbose io.Writer) *fetch.Client {
-	return fetch.New(fetch.WithVerbose(verbose))
+func newFetchClient(cfg config.Config, verbose io.Writer) *fetch.Client {
+	return fetch.New(fetch.WithVerbose(verbose), fetch.WithUserAgent(cfg.UserAgent), fetch.WithTimeout(cfg.RequestTimeout), fetch.WithInterval(cfg.PerHostInterval), fetch.WithProxy(cfg.Proxy))
 }
 
-func resolveMirror(ctx context.Context, override string, client *fetch.Client) (string, error) {
+func resolveMirror(ctx context.Context, cfg config.Config, override string, client *fetch.Client) (string, error) {
 	if override != "" {
 		return strings.TrimRight(override, "/"), nil
 	}
-	path, err := mirror.StatePath()
+	path, err := mirror.StatePath(cfg.CacheDir)
 	if err != nil {
 		return "", err
 	}
-	return mirror.Resolve(ctx, client, path, mirror.Seeds(), time.Now())
+	return mirror.Resolve(ctx, client, path, cfg.Mirrors, time.Now())
+}
+
+func loadConfig(flagPath string) (config.Config, error) {
+	base := config.Defaults()
+	base.Mirrors = mirror.Seeds()
+	path := flagPath
+	explicit := path != ""
+	if path == "" {
+		path = os.Getenv("BOOXD_CONFIG")
+		explicit = path != ""
+	}
+	if path == "" {
+		path, _ = config.Path()
+	}
+	return config.Load(path, explicit, base)
 }
 
 func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient clientFunc) int {
@@ -54,6 +70,7 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 			flags.PrintDefaults()
 		}
 		override := flags.String("mirror", "", "base URL; skip mirror discovery")
+		configPath := flags.String("config", "", "config file path")
 		page := flags.Int("page", 1, "search result page")
 		dump := flags.String("dump-html", "", "write the fetched page to this path")
 		verbose := flags.Bool("verbose", false, "log each fetch attempt to stderr")
@@ -69,13 +86,18 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 			_, _ = fmt.Fprintln(stderr, "booxd: page must be at least 1")
 			return 2
 		}
+		cfg, err := loadConfig(*configPath)
+		if err != nil {
+			_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
+			return 1
+		}
 		var log io.Writer
 		if *verbose {
 			log = stderr
 		}
-		client := newClient(log)
+		client := newClient(cfg, log)
 		ctx := context.Background()
-		base, err := resolve(ctx, *override, client)
+		base, err := resolve(ctx, cfg, *override, client)
 		if err != nil {
 			_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
 			return 1

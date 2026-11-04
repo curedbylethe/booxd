@@ -85,8 +85,13 @@ func TestStatePath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := StatePath()
+	got, err := StatePath("")
 	if err != nil || got != filepath.Join(dir, "booxd", "mirror.json") {
 		t.Fatalf("StatePath = %q, %v", got, err)
+	}
+	custom := filepath.Join(t.TempDir(), "custom")
+	got, err = StatePath(custom)
+	if err != nil || got != filepath.Join(custom, "booxd", "mirror.json") {
+		t.Fatalf("custom StatePath = %q, %v", got, err)
 	}
 }
