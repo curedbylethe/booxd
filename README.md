@@ -54,10 +54,10 @@ Implemented packages:
 
 - `internal/mirror`: mirror seeds, probing, selected-mirror persistence, and cooldown.
 - `internal/fetch`: the shared HTTP client, per-host throttling, retry/backoff, and cache lookup. A cookie jar remains planned.
+- `internal/parse`: search HTML into records, without network access.
 
 Package skeletons and their planned responsibilities:
 
-- `internal/parse`: HTML into records, without network access.
 - `internal/cache`: disk query cache keys, timestamps, TTL, atomic writes, and sweep.
 - `internal/down`: gated downloads, `.part` resume, size checks, and atomic renames using fetch.
 - `internal/tui`: the tcell screen, input, and redraw using parse, cache, and mirror results.
