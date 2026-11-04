@@ -24,7 +24,7 @@ The client waits after a 429 and retries a 5xx twice. `--verbose` logs attempts.
 | `booxd search [--config PATH] [--mirror URL] [--page N] [--dump-html PATH] [--no-cache] [--max-age DURATION] <query>` | `mirror: <url>` on stderr when using network; one tab-separated row per book on stdout; cached rows print `cached <age> ago` on stderr; `no results` on stderr and exit 0 for a miss; exit 1 for fetch or parse failure |
 | `booxd get` | `booxd: get is not implemented yet` |
 | `booxd show [--config PATH] [--mirror URL] [--verbose] <id>` | nine labeled metadata lines and download options; all-gated pages print `downloads require a signed-in session`; exit 1 for config, resolve, fetch, status, or parse failure; exit 2 for usage errors |
-| `booxd tui` | Interactive search line, result table, local detail pane, and status line; Enter searches or opens details, `j`/`k` or arrows move, `/` edits query, Esc goes back, `?` shows help, and `q` quits outside query entry |
+| `booxd tui [--mono]` | Interactive search line, result table, local detail pane, and status line; Enter searches or opens details, `j`/`k` or arrows move, `/` edits query, Esc goes back, `?` shows help, and `q` quits outside query entry |
 | `booxd serve` | `booxd: serve is not implemented yet` |
 
 `booxd search --config PATH` reads `PATH` instead of the default config file.
