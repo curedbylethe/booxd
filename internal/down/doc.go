@@ -1,3 +1,3 @@
-// Package down owns gated downloads, .part resume, size checks, and atomic renames using fetch.
+// Package down owns authenticated, resumable downloads using the shared fetch client.
 // It must not build its own HTTP client.
 package down
