@@ -428,3 +428,74 @@ func TestGet429InterruptedIntervalReturnsResponse(t *testing.T) {
 		t.Fatalf("response %v error %v", resp, err)
 	}
 }
+
+func TestGetCacheHitSkipsNetwork(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls.Add(1) }))
+	defer server.Close()
+	clock := &fakeClock{now: time.Unix(1, 0)}
+	client := New(WithClock(clock), WithLookup(func(context.Context, string) (int, []byte, bool) {
+		return 200, []byte("cached"), true
+	}))
+	resp, err := client.Get(context.Background(), server.URL)
+	if err != nil || resp.StatusCode != 200 || string(resp.Body) != "cached" || resp.Header != nil || calls.Load() != 0 || len(clock.waits) != 0 {
+		t.Fatalf("response %v error %v calls %d waits %v", resp, err, calls.Load(), clock.waits)
+	}
+}
+
+func TestGetCacheMissFetches(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		_, _ = w.Write([]byte("network"))
+	}))
+	defer server.Close()
+	client := New(WithLookup(func(context.Context, string) (int, []byte, bool) { return 0, nil, false }))
+	resp, err := client.Get(context.Background(), server.URL)
+	if err != nil || resp.StatusCode != 200 || string(resp.Body) != "network" || calls.Load() != 1 {
+		t.Fatalf("response %v error %v calls %d", resp, err, calls.Load())
+	}
+}
+
+func TestGetCacheKeyIsTheRawURL(t *testing.T) {
+	const rawURL = "https://example.com/path?query=a%20b"
+	var key string
+	client := New(WithLookup(func(_ context.Context, raw string) (int, []byte, bool) {
+		key = raw
+		return 200, nil, true
+	}))
+	if _, err := client.Get(context.Background(), rawURL); err != nil || key != rawURL {
+		t.Fatalf("key %q error %v", key, err)
+	}
+}
+
+func TestGetMalformedURLSkipsLookup(t *testing.T) {
+	called := false
+	client := New(WithLookup(func(context.Context, string) (int, []byte, bool) {
+		called = true
+		return 200, nil, true
+	}))
+	if _, err := client.Get(context.Background(), "://"); err == nil || called {
+		t.Fatalf("error %v lookup called %t", err, called)
+	}
+}
+
+func TestGetCacheHitOnUnhealthyHost(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Server", "ddos-guard")
+		w.WriteHeader(403)
+	}))
+	defer server.Close()
+	hit := false
+	client := New(WithLookup(func(context.Context, string) (int, []byte, bool) { return 200, []byte("cached"), hit }))
+	if _, err := client.Get(context.Background(), server.URL); !errors.Is(err, ErrHostUnhealthy) {
+		t.Fatalf("error %v", err)
+	}
+	hit = true
+	resp, err := client.Get(context.Background(), server.URL)
+	if err != nil || string(resp.Body) != "cached" || calls.Load() != 1 {
+		t.Fatalf("response %v error %v calls %d", resp, err, calls.Load())
+	}
+}
