@@ -101,6 +101,7 @@ func TestSearchCache(t *testing.T) {
 		fresh      bool
 		resolveErr bool
 		status     int
+		body       string
 		seed       bool
 		wantCached bool
 		wantFetch  bool
@@ -115,6 +116,7 @@ func TestSearchCache(t *testing.T) {
 		{name: "429 miss", status: 429},
 		{name: "corrupt entry refetch", fetchError: false},
 		{name: "sweep on startup"},
+		{name: "empty response preserves cached result", seed: true, args: []string{"--max-age", "1s"}, body: ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cacheDir := t.TempDir()
@@ -153,13 +155,20 @@ func TestSearchCache(t *testing.T) {
 			client := func(config.Config, io.Writer) *fetch.Client {
 				clients++
 				return fetch.New(fetch.WithLookup(func(context.Context, string) (int, []byte, bool) {
-					return statusOr200(tc.status), []byte(card), !tc.fetchError
+					body := tc.body
+					if body == "" && tc.name != "empty response preserves cached result" {
+						body = card
+					}
+					return statusOr200(tc.status), []byte(body), !tc.fetchError
 				}))
 			}
-			resolve := func(context.Context, config.Config, string, *fetch.Client) (string, error) {
+			resolve := func(_ context.Context, _ config.Config, override string, _ *fetch.Client) (string, error) {
 				resolves++
 				if tc.resolveErr {
 					return "", errors.New("offline")
+				}
+				if override != "" {
+					return override, nil
 				}
 				return "https://mirror.test", nil
 			}
@@ -185,6 +194,12 @@ func TestSearchCache(t *testing.T) {
 			if tc.name == "corrupt entry refetch" {
 				if _, ok := store.Get("test", 1); !ok {
 					t.Fatal("corrupt entry was not replaced")
+				}
+			}
+			if tc.name == "empty response preserves cached result" {
+				entry, ok := store.Get("test", 1)
+				if !ok || string(entry.Body) != card {
+					t.Fatal("empty response replaced cached result")
 				}
 			}
 			if tc.name == "sweep on startup" {
