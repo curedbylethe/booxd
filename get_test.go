@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/curedbylethe/booxd/internal/config"
 	"github.com/curedbylethe/booxd/internal/fetch"
@@ -126,12 +127,57 @@ func TestGetLoginWall(t *testing.T) {
 		}
 		downloads.Add(1)
 	})
+	serverURL, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name         string
+		cookieDomain string
+		wantError    string
+	}{
+		{name: "matching cookie domain", cookieDomain: serverURL.Hostname(), wantError: "booxd: downloads need a signed-in session: " + srv.URL + "/books/42\n"},
+		{name: "no cookie for mirror host", cookieDomain: "other.example", wantError: fmt.Sprintf("booxd: downloads need a signed-in session; cookie file has no cookies for mirror host %s. Use --mirror URL to choose a mirror matching the cookie domain: %s/books/42\n", serverURL.Host, srv.URL)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cookiePath := writeCookieFileForDomain(t, tc.cookieDomain)
+			withGetEnvironment(t, t.TempDir())
+			var stdout, stderr bytes.Buffer
+			code := runGetOnServer(t, srv, []string{"get", "--cookies", cookiePath, "42"}, &stdout, &stderr)
+			if code != 1 || downloads.Load() != 0 || !strings.Contains(stderr.String(), tc.wantError) {
+				t.Fatalf("code=%d downloads=%d stderr=%q", code, downloads.Load(), stderr.String())
+			}
+		})
+	}
+}
+
+func TestGetUsesSharedClientAndPageDeadline(t *testing.T) {
+	srv := newGetServer(t, func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(50 * time.Millisecond)
+		_, _ = io.WriteString(w, loginBookPage())
+	})
 	cookiePath := writeCookieFile(t, srv.URL)
 	withGetEnvironment(t, t.TempDir())
+	t.Setenv("BOOXD_REQUEST_TIMEOUT", "10ms")
+	var clients int
+	var client *fetch.Client
+	var clientTimeout time.Duration
+	resolve := func(_ context.Context, _ config.Config, override string, got *fetch.Client) (string, error) {
+		if got != client {
+			t.Fatal("resolve received a different client")
+		}
+		return override, nil
+	}
+	newClient := func(cfg config.Config, verbose io.Writer, jar http.CookieJar) *fetch.Client {
+		clients++
+		clientTimeout = cfg.RequestTimeout
+		client = newFetchClient(cfg, verbose, jar)
+		return client
+	}
 	var stdout, stderr bytes.Buffer
-	code := runGetOnServer(t, srv, []string{"get", "--cookies", cookiePath, "42"}, &stdout, &stderr)
-	if code != 1 || downloads.Load() != 0 || !strings.Contains(stderr.String(), "booxd: downloads need a signed-in session: "+srv.URL+"/books/42\n") {
-		t.Fatalf("code=%d downloads=%d stderr=%q", code, downloads.Load(), stderr.String())
+	code := run([]string{"get", "--mirror", srv.URL, "--cookies", cookiePath, "42"}, &stdout, &stderr, resolve, newClient)
+	if code != 1 || clients != 1 || clientTimeout != 0 || !strings.Contains(stderr.String(), "context deadline exceeded") {
+		t.Fatalf("code=%d clients=%d clientTimeout=%s stderr=%q", code, clients, clientTimeout, stderr.String())
 	}
 }
 
@@ -243,8 +289,13 @@ func writeCookieFile(t *testing.T, serverURL string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return writeCookieFileForDomain(t, u.Hostname())
+}
+
+func writeCookieFileForDomain(t *testing.T, domain string) string {
+	t.Helper()
 	path := filepath.Join(t.TempDir(), "cookies.txt")
-	data := fmt.Sprintf("%s\tFALSE\t/\tFALSE\t0\tsid\tdummy\n", u.Hostname())
+	data := fmt.Sprintf("%s\tFALSE\t/\tFALSE\t0\tsid\tdummy\n", domain)
 	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
 		t.Fatal(err)
 	}

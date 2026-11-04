@@ -62,12 +62,18 @@ The page is never read from or written to the cache. Without `--cookies`, `get`
 resolves the mirror, prints the book URL, explains that a signed-in session is
 needed, and exits 2. A gated page or a 401, 403, or 407 stops with one error; `get`
 does not try another download option.
+If the cookie file has no cookies for the resolved mirror host, `get` reports
+that mismatch and suggests `--mirror` so you can select a mirror matching the
+cookie domain.
 
 Files go to `download_dir`. The transfer keeps interrupted data in `<name>.part`,
 sends `Range` when resuming, checks the response size against `Content-Length`,
 and renames the completed file atomically. Progress prints whole percentages,
 one per line on stderr. If the server omits `Content-Length`, `get` skips progress
-and the size check. Existing files are kept and reported as already downloaded.
+and the size check. The configured `request_timeout` bounds the book-page
+request. Download response headers have a 30-second wait limit, but the body
+transfer has no overall timeout. Existing files are kept and reported as already
+downloaded.
 
 ## Configuration
 

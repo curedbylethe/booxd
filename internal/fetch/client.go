@@ -15,7 +15,7 @@ import (
 // DefaultUserAgent identifies requests sent by the client.
 const DefaultUserAgent = "booxd/0.1"
 
-// DefaultTimeout bounds the full lifetime of an HTTP request.
+// DefaultTimeout bounds an HTTP request by default and response headers when body timeout is disabled.
 const DefaultTimeout = 30 * time.Second
 
 // DefaultInterval is the minimum time between request starts to one host.
@@ -69,7 +69,7 @@ func WithProxy(proxy *url.URL) Option {
 		if proxy == nil {
 			return
 		}
-		if transport, ok := http.DefaultTransport.(*http.Transport); ok {
+		if transport, ok := c.http.Transport.(*http.Transport); ok {
 			clone := transport.Clone()
 			clone.Proxy = http.ProxyURL(proxy)
 			c.http.Transport = clone
@@ -85,6 +85,11 @@ func WithTimeout(timeout time.Duration) Option {
 	return func(c *Client) {
 		if timeout == 0 {
 			c.http.Timeout = 0
+			if transport, ok := c.http.Transport.(*http.Transport); ok {
+				clone := transport.Clone()
+				clone.ResponseHeaderTimeout = DefaultTimeout
+				c.http.Transport = clone
+			}
 		} else if timeout > 0 {
 			c.http.Timeout = timeout
 		} else {

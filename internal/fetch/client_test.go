@@ -154,6 +154,39 @@ func TestGetTimeout(t *testing.T) {
 	}
 }
 
+func TestWithTimeoutZeroBoundsResponseHeaders(t *testing.T) {
+	proxy, err := url.Parse("http://proxy.test:8080")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := url.Parse("http://target.test/file")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, options := range [][]Option{
+		{WithTimeout(0), WithProxy(proxy)},
+		{WithProxy(proxy), WithTimeout(0)},
+	} {
+		client := New(options...)
+		transport, ok := client.http.Transport.(*http.Transport)
+		if !ok {
+			t.Fatalf("transport type = %T, want *http.Transport", client.http.Transport)
+		}
+		if client.http.Timeout != 0 {
+			t.Fatalf("client timeout = %s, want disabled", client.http.Timeout)
+		}
+		if transport.ResponseHeaderTimeout != DefaultTimeout {
+			t.Fatalf("response header timeout = %s, want %s", transport.ResponseHeaderTimeout, DefaultTimeout)
+		}
+		if proxyURL, err := transport.Proxy(&http.Request{URL: target}); err != nil || proxyURL == nil || proxyURL.String() != proxy.String() {
+			t.Fatalf("proxy = %v, error = %v; want %s", proxyURL, err, proxy)
+		}
+		if client.http.Transport == http.DefaultTransport {
+			t.Fatal("client reused the default transport instead of cloning it")
+		}
+	}
+}
+
 func TestWithJarNilIsNoop(t *testing.T) {
 	if got := New(WithJar(nil)).http.Jar; got != nil {
 		t.Fatalf("nil jar = %v, want nil", got)
