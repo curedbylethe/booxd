@@ -129,7 +129,7 @@ Implemented packages:
 
 - `internal/config`: config path, defaults, TOML loading, and environment overrides.
 - `internal/mirror`: mirror seeds, probing, selected-mirror persistence, and cooldown.
-- `internal/fetch`: the shared HTTP client, streaming responses, cookie jar, per-host throttling, retry/backoff, and cache lookup.
+- `internal/fetch`: the shared HTTP client, streaming responses, cookie jar, per-host throttling, retry/backoff, and cache lookup. On Android, DNS uses the first valid nameserver IP in `$PREFIX/etc/resolv.conf` (default prefix `/data/data/com.termux/files/usr`), falling back to `8.8.8.8` if the file is missing or has no valid nameserver.
 - `internal/cache`: disk query cache with normalized keys, atomic JSON writes, TTL reads, and expiry sweep.
 - `internal/parse`: search and detail HTML into book metadata and download
   options, without network access.
