@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -93,7 +94,7 @@ func TestRunShow(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			clients, calls, lookups := 0, 0, 0
 			var gotURL string
-			newClient := func(_ config.Config, writer io.Writer) *fetch.Client {
+			newClient := func(_ config.Config, writer io.Writer, _ http.CookieJar) *fetch.Client {
 				clients++
 				if (writer != nil) != tt.verbose || (writer != nil && writer != &stderr) {
 					t.Errorf("verbose writer = %v", writer)
@@ -171,7 +172,7 @@ func TestRunShowSlugSharesCacheKey(t *testing.T) {
 	}
 	var out, stderr bytes.Buffer
 	clients := 0
-	newClient := func(_ config.Config, _ io.Writer) *fetch.Client {
+	newClient := func(_ config.Config, _ io.Writer, _ http.CookieJar) *fetch.Client {
 		clients++
 		return fetch.New(fetch.WithLookup(func(context.Context, string) (int, []byte, bool) {
 			return 200, showFixture(t, "book-detail.html"), true

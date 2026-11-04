@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -22,10 +23,10 @@ func main() {
 }
 
 type resolveFunc func(ctx context.Context, cfg config.Config, override string, client *fetch.Client) (string, error)
-type clientFunc func(cfg config.Config, verbose io.Writer) *fetch.Client
+type clientFunc func(cfg config.Config, verbose io.Writer, jar http.CookieJar) *fetch.Client
 
-func newFetchClient(cfg config.Config, verbose io.Writer) *fetch.Client {
-	return fetch.New(fetch.WithVerbose(verbose), fetch.WithUserAgent(cfg.UserAgent), fetch.WithTimeout(cfg.RequestTimeout), fetch.WithInterval(cfg.PerHostInterval), fetch.WithProxy(cfg.Proxy))
+func newFetchClient(cfg config.Config, verbose io.Writer, jar http.CookieJar) *fetch.Client {
+	return fetch.New(fetch.WithVerbose(verbose), fetch.WithUserAgent(cfg.UserAgent), fetch.WithTimeout(cfg.RequestTimeout), fetch.WithInterval(cfg.PerHostInterval), fetch.WithProxy(cfg.Proxy), fetch.WithJar(jar))
 }
 
 func resolveMirror(ctx context.Context, cfg config.Config, override string, client *fetch.Client) (string, error) {
@@ -106,7 +107,7 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 			return resolve(ctx, cfg, *override, client)
 		}
 		search := newSearcher(cfg, nil, store, resolveSearch, stderr)
-		search.clientFactory = func() *fetch.Client { return newClient(cfg, log) }
+		search.clientFactory = func() *fetch.Client { return newClient(cfg, log, nil) }
 		outcome, err := search.search(ctx, query, searchOptions{Page: *page, MaxAge: *maxAge, NoCache: *noCache})
 		if *dump != "" && outcome.Body != nil {
 			if err := os.WriteFile(*dump, outcome.Body, 0o644); err != nil {
@@ -149,7 +150,7 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 		if dir, pathErr := cache.Path(cfg.CacheDir); pathErr == nil {
 			store = cache.Open(dir)
 		}
-		client := newClient(cfg, nil)
+		client := newClient(cfg, nil, nil)
 		search := newSearcher(cfg, client, store, resolve, nil)
 		searchFunc := func(ctx context.Context, query string) ([]parse.Book, error) {
 			outcome, err := search.search(ctx, query, searchOptions{Page: 1, MaxAge: cache.DefaultTTL})

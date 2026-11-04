@@ -68,7 +68,7 @@ func runShow(args []string, stdout, stderr io.Writer, resolve resolveFunc, newCl
 	if *verbose {
 		log = stderr
 	}
-	client := newClient(cfg, log)
+	client := newClient(cfg, log, nil)
 	ctx := context.Background()
 	base, err := resolve(ctx, cfg, *override, client)
 	if err != nil {
