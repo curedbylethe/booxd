@@ -101,18 +101,22 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 		}
 		var cached cache.Entry
 		hit := false
+		serveCached := func() int {
+			printCached(stderr, time.Since(cached.FetchedAt))
+			if *dump != "" {
+				if err := os.WriteFile(*dump, cached.Body, 0o644); err != nil {
+					_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
+					return 1
+				}
+			}
+			code, _ := renderSearch(stdout, stderr, cached.Body)
+			return code
+		}
 		if store != nil && !*noCache {
 			cached, hit = store.Get(query, *page)
 			age := time.Since(cached.FetchedAt)
 			if hit && age >= 0 && age < *maxAge {
-				printCached(stderr, age)
-				if *dump != "" {
-					if err := os.WriteFile(*dump, cached.Body, 0o644); err != nil {
-						_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
-						return 1
-					}
-				}
-				return renderSearch(stdout, stderr, cached.Body)
+				return serveCached()
 			}
 		}
 		var log io.Writer
@@ -124,8 +128,7 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 		base, err := resolve(ctx, cfg, *override, client)
 		if err != nil {
 			if hit {
-				printCached(stderr, time.Since(cached.FetchedAt))
-				return renderSearch(stdout, stderr, cached.Body)
+				return serveCached()
 			}
 			_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
 			return 1
@@ -138,8 +141,7 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 		resp, err := client.Get(ctx, searchURL)
 		if err != nil {
 			if hit {
-				printCached(stderr, time.Since(cached.FetchedAt))
-				return renderSearch(stdout, stderr, cached.Body)
+				return serveCached()
 			}
 			_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
 			return 1
@@ -152,14 +154,13 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 		}
 		if resp.StatusCode != 200 {
 			if hit {
-				printCached(stderr, time.Since(cached.FetchedAt))
-				return renderSearch(stdout, stderr, cached.Body)
+				return serveCached()
 			}
 			_, _ = fmt.Fprintf(stderr, "booxd: search: status %d\n", resp.StatusCode)
 			return 1
 		}
-		code := renderSearch(stdout, stderr, resp.Body)
-		if code == 0 && store != nil {
+		code, count := renderSearch(stdout, stderr, resp.Body)
+		if code == 0 && count > 0 && store != nil {
 			_ = store.Put(cache.Entry{Query: query, Page: *page, Status: resp.StatusCode, FetchedAt: time.Now(), Body: resp.Body})
 		}
 		return code
@@ -172,20 +173,20 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 	}
 }
 
-func renderSearch(stdout, stderr io.Writer, body []byte) int {
+func renderSearch(stdout, stderr io.Writer, body []byte) (int, int) {
 	books, err := parse.Search(bytes.NewReader(body))
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
-		return 1
+		return 1, 0
 	}
 	if len(books) == 0 {
 		_, _ = fmt.Fprintln(stderr, "no results")
-		return 0
+		return 0, 0
 	}
 	for _, b := range books {
 		_, _ = fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\t%s\t%s\n", b.ID, b.Title, b.Author, b.Year, b.Format, b.Size)
 	}
-	return 0
+	return 0, len(books)
 }
 
 func printCached(w io.Writer, age time.Duration) {

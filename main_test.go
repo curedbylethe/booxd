@@ -104,13 +104,17 @@ func TestSearchCache(t *testing.T) {
 		seed       bool
 		wantCached bool
 		wantFetch  bool
+		fetchError bool
 	}{
 		{name: "fresh hit", fresh: true, seed: true, wantCached: true},
 		{name: "no cache", fresh: true, seed: true, args: []string{"--no-cache"}, wantFetch: true},
 		{name: "max age", fresh: true, seed: true, args: []string{"--max-age", "1s"}, wantFetch: true},
-		{name: "resolver fallback", resolveErr: true, seed: true, wantCached: true},
-		{name: "429 fallback", status: 429, seed: true, wantCached: true},
+		{name: "resolver fallback", resolveErr: true, seed: true, args: []string{"--max-age", "1s"}, wantCached: true},
+		{name: "transport fallback", fetchError: true, seed: true, args: []string{"--max-age", "1s", "--mirror", "ftp://mirror.test"}, wantCached: true, wantFetch: true},
+		{name: "429 fallback", status: 429, seed: true, args: []string{"--max-age", "1s"}, wantCached: true, wantFetch: true},
 		{name: "429 miss", status: 429},
+		{name: "corrupt entry refetch", fetchError: false},
+		{name: "sweep on startup"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cacheDir := t.TempDir()
@@ -119,6 +123,24 @@ func TestSearchCache(t *testing.T) {
 				t.Fatal(err)
 			}
 			store := cache.Open(filepath.Join(cacheDir, "booxd", "cache"))
+			if tc.name == "corrupt entry refetch" {
+				if err := os.MkdirAll(filepath.Join(cacheDir, "booxd", "cache"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(cacheDir, "booxd", "cache", cache.Key("test", 1)+".json"), []byte("broken"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.name == "sweep on startup" {
+				if err := store.Put(cache.Entry{Query: "old", Page: 1, FetchedAt: time.Now().Add(-31 * 24 * time.Hour), Body: []byte(card)}); err != nil {
+					t.Fatal(err)
+				}
+				oldPath := filepath.Join(cacheDir, "booxd", "cache", cache.Key("old", 1)+".json")
+				old := time.Now().Add(-31 * 24 * time.Hour)
+				if err := os.Chtimes(oldPath, old, old); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if tc.seed {
 				if err := store.Put(cache.Entry{Query: "test", Page: 1, Status: 200, FetchedAt: time.Now().Add(-3 * time.Hour), Body: []byte(card)}); err != nil {
 					t.Fatal(err)
@@ -130,7 +152,9 @@ func TestSearchCache(t *testing.T) {
 			clients, resolves := 0, 0
 			client := func(config.Config, io.Writer) *fetch.Client {
 				clients++
-				return fetch.New(fetch.WithLookup(func(context.Context, string) (int, []byte, bool) { return statusOr200(tc.status), []byte(card), true }))
+				return fetch.New(fetch.WithLookup(func(context.Context, string) (int, []byte, bool) {
+					return statusOr200(tc.status), []byte(card), !tc.fetchError
+				}))
 			}
 			resolve := func(context.Context, config.Config, string, *fetch.Client) (string, error) {
 				resolves++
@@ -141,7 +165,7 @@ func TestSearchCache(t *testing.T) {
 			}
 			code := run(args, &out, &stderr, resolve, client)
 			if tc.wantCached {
-				if code != 0 || !strings.HasPrefix(stderr.String(), "cached 3h ago\n") || out.String() != "36451\tTest\t\t2022\tPDF\t51.0 MB\n" {
+				if code != 0 || !strings.Contains(stderr.String(), "cached 3h ago\n") || out.String() != "36451\tTest\t\t2022\tPDF\t51.0 MB\n" {
 					t.Fatalf("cached result: code=%d out=%q err=%q", code, out.String(), stderr.String())
 				}
 			} else if tc.status == 429 && code != 1 {
@@ -152,6 +176,21 @@ func TestSearchCache(t *testing.T) {
 			}
 			if tc.fresh && len(tc.args) == 0 && (clients != 0 || resolves != 0) {
 				t.Fatalf("fresh hit made requests: %d/%d", clients, resolves)
+			}
+			if tc.name == "no cache" {
+				if entry, ok := store.Get("test", 1); !ok || entry.Status != 200 {
+					t.Fatal("successful --no-cache fetch was not stored")
+				}
+			}
+			if tc.name == "corrupt entry refetch" {
+				if _, ok := store.Get("test", 1); !ok {
+					t.Fatal("corrupt entry was not replaced")
+				}
+			}
+			if tc.name == "sweep on startup" {
+				if _, err := os.Stat(filepath.Join(cacheDir, "booxd", "cache", cache.Key("old", 1)+".json")); !os.IsNotExist(err) {
+					t.Fatalf("old entry remains: %v", err)
+				}
 			}
 		})
 	}

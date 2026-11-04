@@ -18,7 +18,7 @@ The client waits after a 429 and retries a 5xx twice. `--verbose` logs attempts.
 
 | Command | Output today |
 | -- | -- |
-| `booxd search [--config PATH] [--mirror URL] [--page N] [--dump-html PATH] [--no-cache] [--max-age DURATION] <query>` | one tab-separated row per book on stdout; cached rows print `cached <age> ago` on stderr; `no results` on stderr and exit 0 for a miss; exit 1 for fetch or parse failure |
+| `booxd search [--config PATH] [--mirror URL] [--page N] [--dump-html PATH] [--no-cache] [--max-age DURATION] <query>` | `mirror: <url>` on stderr when using network; one tab-separated row per book on stdout; cached rows print `cached <age> ago` on stderr; `no results` on stderr and exit 0 for a miss; exit 1 for fetch or parse failure |
 | `booxd get` | `booxd: get is not implemented yet` |
 | `booxd show` | `booxd: show is not implemented yet` |
 | `booxd tui` | `booxd: tui is not implemented yet` |
@@ -27,7 +27,8 @@ The client waits after a 429 and retries a 5xx twice. `--verbose` logs attempts.
 `booxd search --config PATH` reads `PATH` instead of the default config file.
 `booxd search --mirror URL` uses `URL` and skips discovery entirely. Put flags
 before query arguments; multiple words are joined with spaces. Page defaults to 1.
-`--dump-html PATH` writes the raw response body before parsing. A missing query or
+`--dump-html PATH` writes the raw response body before parsing, or the cached body
+on a cache hit. A missing query or
 page below 1 exits 2; `booxd search -h` shows search usage and exits 2.
 The query cache lives at `<cache_dir>/booxd/cache`; `--no-cache` skips reads and
 `--max-age DURATION` overrides the default `24h` freshness window. If mirror
