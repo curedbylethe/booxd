@@ -12,6 +12,10 @@ import (
 
 // Resolve reuses a fresh selection or probes seeds in order and persists the result.
 func Resolve(ctx context.Context, c *fetch.Client, statePath string, seeds []string, now time.Time) (string, error) {
+	return resolve(ctx, c, statePath, seeds, now, probeTimeout)
+}
+
+func resolve(ctx context.Context, c *fetch.Client, statePath string, seeds []string, now time.Time, timeout time.Duration) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -27,7 +31,7 @@ func Resolve(ctx context.Context, c *fetch.Client, statePath string, seeds []str
 		if until := st.DeadUntil[base]; until.After(now) && until.Sub(now) <= cooldown {
 			continue
 		}
-		result := probe(ctx, c, base, probeTimeout)
+		result := probe(ctx, c, base, timeout)
 		if err := ctx.Err(); err != nil {
 			return "", err
 		}
