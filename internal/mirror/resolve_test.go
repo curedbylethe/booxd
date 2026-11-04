@@ -41,7 +41,7 @@ func TestResolve(t *testing.T) {
 		{name: "dead deadline beyond cooldown", statuses: []int{200}, dead: []time.Duration{24 * time.Hour}, calls: []int32{1}},
 		{name: "cooldown boundary", statuses: []int{200}, dead: []time.Duration{0}, calls: []int32{1}},
 		{name: "429 is not dead", statuses: []int{429, 200}, selected: 1, calls: []int32{1, 1}},
-		{name: "all fail", statuses: []int{403, 500}, age: 25 * time.Hour, selected: -1, calls: []int32{1, 1}, failure: "tried"},
+		{name: "all fail", statuses: []int{403, 500}, age: 25 * time.Hour, selected: -1, calls: []int32{1, 3}, failure: "tried"},
 		{name: "all dead persist", statuses: []int{403, 404}, selected: -1, calls: []int32{1, 1}, failure: "tried", retry: true},
 		{name: "all cooling down", statuses: []int{200, 200}, dead: []time.Duration{30 * time.Minute, 30 * time.Minute}, selected: -1, calls: []int32{0, 0}, failure: "cooling"},
 		{name: "corrupt state", statuses: []int{200}, corrupt: true, calls: []int32{1}},

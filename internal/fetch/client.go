@@ -133,6 +133,14 @@ func (c *Client) Get(ctx context.Context, rawURL string) (*Response, error) {
 			continue
 		}
 		st.streak = 0
+		if result.StatusCode >= 500 && result.StatusCode <= 599 {
+			if attempt < maxAttempts {
+				if err := c.clock.Wait(ctx, serverErrorWait(attempt)); err == nil {
+					continue
+				}
+			}
+			return nil, fmt.Errorf("fetch: %s returned %d %s after %d attempts", u.Host, result.StatusCode, http.StatusText(result.StatusCode), attempt)
+		}
 		if marker, ok := challenge(result); ok {
 			st.unhealthyUntil = c.clock.Now().Add(unhealthyFor)
 			return nil, fmt.Errorf("%w: %s (%s)", ErrHostUnhealthy, u.Host, marker)

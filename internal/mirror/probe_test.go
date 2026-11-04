@@ -63,7 +63,7 @@ func TestProbe(t *testing.T) {
 		{name: "404", status: 404, body: "missing", want: dead, wantCalls: 1},
 		{name: "timeout", wait: true, want: dead, wantCalls: 1},
 		{name: "429", status: 429, body: "limited", want: fail, wantCalls: 1},
-		{name: "500", status: 500, body: "failed", want: fail, wantCalls: 1},
+		{name: "500", status: 500, body: "failed", want: fail, wantCalls: 3},
 		{name: "redirect", status: 302, body: passMarker, want: fail, wantCalls: 1},
 		{name: "transport error", closed: true, want: fail},
 		{name: "DNS error", transport: &net.DNSError{Err: "no such host", Name: "booxd.invalid", IsNotFound: true}, want: fail},
@@ -109,7 +109,12 @@ func TestProbe(t *testing.T) {
 			if tt.wait || tt.status == 429 {
 				timeout = 20 * time.Millisecond
 			}
-			if got := probe(ctx, fetch.New(), base, timeout); got != tt.want {
+			client := fetch.New()
+			if tt.status == 500 {
+				timeout = 2 * time.Second
+				client = fetch.New(fetch.WithInterval(0))
+			}
+			if got := probe(ctx, client, base, timeout); got != tt.want {
 				t.Fatalf("outcome = %d, want %d", got, tt.want)
 			}
 			if got := calls.Load(); got != tt.wantCalls {

@@ -1,6 +1,7 @@
 package fetch
 
 import (
+	"math/rand/v2"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,6 +13,7 @@ const (
 	maxRetryAfter     = 15 * time.Minute
 	unhealthyFor      = time.Hour
 	maxAttempts       = 3
+	serverRetryBase   = 250 * time.Millisecond
 )
 
 func retryWait(h http.Header, streak int, now time.Time) time.Duration {
@@ -55,4 +57,9 @@ func challenge(resp *Response) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func serverErrorWait(attempt int) time.Duration {
+	base := serverRetryBase << (attempt - 1)
+	return base/2 + rand.N(base/2)
 }
