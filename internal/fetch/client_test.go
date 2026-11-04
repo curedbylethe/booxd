@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
 	"slices"
@@ -145,8 +146,17 @@ func TestGetTimeout(t *testing.T) {
 	if resp != nil || err == nil {
 		t.Fatalf("response = %#v, error = %v; want timeout", resp, err)
 	}
-	if got := New(WithTimeout(0)).http.Timeout; got != DefaultTimeout {
-		t.Fatalf("non-positive timeout = %s, want %s", got, DefaultTimeout)
+	if got := New(WithTimeout(0)).http.Timeout; got != 0 {
+		t.Fatalf("zero timeout = %s, want disabled", got)
+	}
+	if got := New(WithTimeout(10*time.Second), WithTimeout(-1)).http.Timeout; got != DefaultTimeout {
+		t.Fatalf("negative timeout = %s, want %s", got, DefaultTimeout)
+	}
+}
+
+func TestWithJarNilIsNoop(t *testing.T) {
+	if got := New(WithJar(nil)).http.Jar; got != nil {
+		t.Fatalf("nil jar = %v, want nil", got)
 	}
 }
 
@@ -571,6 +581,215 @@ func TestGetMalformedURLSkipsLookup(t *testing.T) {
 	if _, err := client.Get(context.Background(), "://"); err == nil || called {
 		t.Fatalf("error %v lookup called %t", err, called)
 	}
+}
+
+func TestOpenStreamsBodyAfterReturn(t *testing.T) {
+	continueWrite := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		<-continueWrite
+		_, _ = io.WriteString(w, "streamed")
+	}))
+	defer server.Close()
+	stream, err := New(WithInterval(0)).Open(context.Background(), server.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	close(continueWrite)
+	body, err := io.ReadAll(stream.Body)
+	_ = stream.Body.Close()
+	if err != nil || string(body) != "streamed" {
+		t.Fatalf("body = %q, error = %v", body, err)
+	}
+}
+
+func TestOpenHoldsHostSlotUntilClose(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		_, _ = io.WriteString(w, "ok")
+	}))
+	defer server.Close()
+	client := New(WithClock(&fakeClock{now: time.Unix(1, 0)}), WithInterval(0))
+	first, err := client.Open(context.Background(), server.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondResult := make(chan error, 1)
+	go func() {
+		second, err := client.Open(context.Background(), server.URL, nil)
+		if err == nil {
+			_ = second.Body.Close()
+		}
+		secondResult <- err
+	}()
+	select {
+	case err := <-secondResult:
+		t.Fatalf("second Open returned before first body closed: %v", err)
+	default:
+	}
+	if err := first.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-secondResult:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("second Open did not start after first body closed")
+	}
+	if requests.Load() != 2 {
+		t.Fatalf("requests = %d, want 2", requests.Load())
+	}
+}
+
+func TestOpenSendsHeaders(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Range"); got != "bytes=5-" {
+			t.Errorf("Range = %q", got)
+		}
+		if got := r.UserAgent(); got != "booxd/0.1" {
+			t.Errorf("User-Agent = %q", got)
+		}
+	}))
+	defer server.Close()
+	stream, err := New(WithInterval(0)).Open(context.Background(), server.URL, http.Header{"Range": []string{"bytes=5-"}, "User-Agent": []string{"ignored"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = stream.Body.Close()
+}
+
+func TestOpenBypassesLookup(t *testing.T) {
+	var lookups atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "network") }))
+	defer server.Close()
+	client := New(WithInterval(0), WithLookup(func(context.Context, string) (int, []byte, bool) {
+		lookups.Add(1)
+		return http.StatusOK, []byte("cached"), true
+	}))
+	stream, err := client.Open(context.Background(), server.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(stream.Body)
+	_ = stream.Body.Close()
+	if err != nil || string(body) != "network" || lookups.Load() != 0 {
+		t.Fatalf("body = %q, error = %v, lookups = %d", body, err, lookups.Load())
+	}
+}
+
+func TestOpenRetries429AndKeepsBody(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = io.WriteString(w, "limited")
+			return
+		}
+		_, _ = io.WriteString(w, "ready")
+	}))
+	defer server.Close()
+	stream, err := New(WithClock(&fakeClock{now: time.Unix(1, 0)}), WithInterval(0)).Open(context.Background(), server.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(stream.Body)
+	_ = stream.Body.Close()
+	if err != nil || string(body) != "ready" || calls.Load() != 2 {
+		t.Fatalf("body = %q, error = %v, calls = %d", body, err, calls.Load())
+	}
+}
+
+func TestOpenChallengeClosesBody(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Server", "cloudflare")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, "challenge")
+	}))
+	defer server.Close()
+	_, err := New(WithInterval(0)).Open(context.Background(), server.URL, nil)
+	if !errors.Is(err, ErrHostUnhealthy) || calls.Load() != 1 {
+		t.Fatalf("error = %v, calls = %d", err, calls.Load())
+	}
+}
+
+func TestOpenPlainForbiddenReleasesHostSlot(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) == 1 {
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = io.WriteString(w, "forbidden")
+			return
+		}
+		_, _ = io.WriteString(w, "ok")
+	}))
+	defer server.Close()
+	client := New(WithInterval(0), WithClock(&fakeClock{now: time.Unix(1, 0)}))
+	first, err := client.Open(context.Background(), server.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstBody, err := io.ReadAll(first.Body)
+	_ = first.Body.Close()
+	if err != nil || string(firstBody) != "forbidden" {
+		t.Fatalf("first body = %q, error = %v", firstBody, err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	second, err := client.Open(ctx, server.URL, nil)
+	if err != nil {
+		t.Fatalf("second Open failed after plain 403: %v", err)
+	}
+	body, err := io.ReadAll(second.Body)
+	_ = second.Body.Close()
+	if err != nil || string(body) != "ok" || calls.Load() != 2 {
+		t.Fatalf("second body = %q, error = %v, calls = %d", body, err, calls.Load())
+	}
+}
+
+func TestOpenPassesRedirectThrough(t *testing.T) {
+	var target atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/target" {
+			target.Add(1)
+		}
+		w.Header().Set("Location", "/target")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer server.Close()
+	stream, err := New(WithInterval(0)).Open(context.Background(), server.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = stream.Body.Close()
+	if stream.StatusCode != http.StatusFound || stream.Header.Get("Location") != "/target" || target.Load() != 0 {
+		t.Fatalf("status = %d, location = %q, target requests = %d", stream.StatusCode, stream.Header.Get("Location"), target.Load())
+	}
+}
+
+func TestOpenSendsJarCookies(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if cookie, err := r.Cookie("sid"); err != nil || cookie.Value != "test" {
+			t.Errorf("sid cookie = %v, error = %v", cookie, err)
+		}
+	}))
+	defer server.Close()
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, _ := url.Parse(server.URL)
+	jar.SetCookies(u, []*http.Cookie{{Name: "sid", Value: "test"}})
+	stream, err := New(WithJar(jar), WithInterval(0)).Open(context.Background(), server.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = stream.Body.Close()
 }
 
 func TestGetCacheHitOnUnhealthyHost(t *testing.T) {
