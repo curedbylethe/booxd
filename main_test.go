@@ -17,7 +17,7 @@ import (
 const card = `<div class="bg-white rounded-lg shadow p-4 mb-4"><h3><a href="/books/36451-test">Test</a></h3><div class="text-sm text-[#666] mt-1">Unknown author · 2022 · PDF · 51.0 MB · Books catalog</div></div>`
 
 func TestRun(t *testing.T) {
-	help := "usage: booxd search [flags] <query>\nflags must precede query arguments\n  -config string\n    \tconfig file path\n  -dump-html string\n    \twrite the fetched page to this path\n  -mirror string\n    \tbase URL; skip mirror discovery\n  -page int\n    \tsearch result page (default 1)\n  -verbose\n    \tlog each fetch attempt to stderr\n"
+	help := "usage: booxd search [flags] <query>\nflags must precede query arguments\n  -config string\n    \tconfig file path\n  -dump-html string\n    \twrite the fetched page to this path\n  -max-age duration\n    \tmaximum age of cached search results (default 24h0m0s)\n  -mirror string\n    \tbase URL; skip mirror discovery\n  -no-cache\n    \tskip cached search results\n  -page int\n    \tsearch result page (default 1)\n  -verbose\n    \tlog each fetch attempt to stderr\n"
 	for _, tt := range []struct {
 		name                          string
 		args                          []string
@@ -48,6 +48,7 @@ func TestRun(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			t.Setenv("BOOXD_CACHE_DIR", t.TempDir())
 			t.Setenv("BOOXD_CONFIG", "")
 			var stdout, stderr bytes.Buffer
 			calls, clients := 0, 0
@@ -104,6 +105,7 @@ func TestDumpHTML(t *testing.T) {
 		{name: "write failure", body: card, status: 200, badPath: true, wantError: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("BOOXD_CACHE_DIR", t.TempDir())
 			path := filepath.Join(t.TempDir(), "page.html")
 			if tc.badPath {
 				path = filepath.Join(path, "missing", "page.html")
@@ -150,6 +152,7 @@ func TestResolveMirrorOverride(t *testing.T) {
 
 func TestRunConfig(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("BOOXD_CACHE_DIR", t.TempDir())
 	t.Setenv("BOOXD_CONFIG", "")
 	path := filepath.Join(t.TempDir(), "config.toml")
 	if err := os.WriteFile(path, []byte("user_agent = \"file/1\"\n"), 0o600); err != nil {

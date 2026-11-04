@@ -6,7 +6,8 @@ This repository is the skeleton for searching, inspecting, and fetching books.
 ## Status
 
 `search` loads optional configuration from `config.toml`, fetches one results page and prints parsed book records. It supports
-`--page` and `--dump-html`. Parsing lives in `internal/parse` and never accesses
+`--page`, `--dump-html`, and a disk cache with a 24-hour TTL. Cached output prints
+`cached <age> ago` on stderr. Parsing lives in `internal/parse` and never accesses
 the network. The other four commands remain stubs: they print "not implemented
 yet" and exit 1. Downloads and the TUI come later.
 No arguments prints usage and exits 2; an unknown command also exits 2.
@@ -17,7 +18,7 @@ The client waits after a 429 and retries a 5xx twice. `--verbose` logs attempts.
 
 | Command | Output today |
 | -- | -- |
-| `booxd search [--config PATH] [--mirror URL] [--page N] [--dump-html PATH] <query>` | `mirror: <url>` on stderr, then one tab-separated row per book on stdout; `no results` on stderr and exit 0 for a miss; exit 1 for fetch or parse failure |
+| `booxd search [--config PATH] [--mirror URL] [--page N] [--dump-html PATH] [--no-cache] [--max-age DURATION] <query>` | one tab-separated row per book on stdout; cached rows print `cached <age> ago` on stderr; `no results` on stderr and exit 0 for a miss; exit 1 for fetch or parse failure |
 | `booxd get` | `booxd: get is not implemented yet` |
 | `booxd show` | `booxd: show is not implemented yet` |
 | `booxd tui` | `booxd: tui is not implemented yet` |
@@ -28,6 +29,10 @@ The client waits after a 429 and retries a 5xx twice. `--verbose` logs attempts.
 before query arguments; multiple words are joined with spaces. Page defaults to 1.
 `--dump-html PATH` writes the raw response body before parsing. A missing query or
 page below 1 exits 2; `booxd search -h` shows search usage and exits 2.
+The query cache lives at `<cache_dir>/booxd/cache`; `--no-cache` skips reads and
+`--max-age DURATION` overrides the default `24h` freshness window. If mirror
+resolution or fetching fails, search serves the last cached page with its age
+marker. Cache entries older than 30 days are swept at search startup.
 `booxd search --verbose` logs host, status, and wait for each attempt to stderr.
 It also reports waits before they begin.
 
@@ -81,11 +86,11 @@ Implemented packages:
 - `internal/config`: config path, defaults, TOML loading, and environment overrides.
 - `internal/mirror`: mirror seeds, probing, selected-mirror persistence, and cooldown.
 - `internal/fetch`: the shared HTTP client, per-host throttling, retry/backoff, and cache lookup. A cookie jar remains planned.
+- `internal/cache`: disk query cache with normalized keys, atomic JSON writes, TTL reads, and expiry sweep.
 - `internal/parse`: search HTML into records, without network access.
 
 Package skeletons and their planned responsibilities:
 
-- `internal/cache`: disk query cache keys, timestamps, TTL, atomic writes, and sweep.
 - `internal/down`: gated downloads, `.part` resume, size checks, and atomic renames using fetch.
 - `internal/tui`: the tcell screen, input, and redraw using parse, cache, and mirror results.
 
