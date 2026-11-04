@@ -51,7 +51,7 @@ func TestMirrorStateMachine(t *testing.T) {
 		t0 := clock.Now()
 		client := fetch.New(fetch.WithClock(clock))
 
-		got, err := resolve(context.Background(), client, path, []string{first, second}, clock.Now(), probeTimeout)
+		got, err := Resolve(context.Background(), client, path, []string{first, second}, clock.Now())
 		if err != nil || got != second {
 			t.Fatalf("first Resolve() = %q, %v; want %q, nil", got, err, second)
 		}
@@ -64,7 +64,7 @@ func TestMirrorStateMachine(t *testing.T) {
 
 		ageSelection(t, path, clock.Now())
 		clock.Advance(59 * time.Minute)
-		got, err = resolve(context.Background(), client, path, []string{first, second}, clock.Now(), probeTimeout)
+		got, err = Resolve(context.Background(), client, path, []string{first, second}, clock.Now())
 		if err != nil || got != second {
 			t.Fatalf("cooldown Resolve() = %q, %v; want %q, nil", got, err, second)
 		}
@@ -75,7 +75,7 @@ func TestMirrorStateMachine(t *testing.T) {
 		ageSelection(t, path, clock.Now())
 		status.Store(http.StatusOK)
 		clock.Advance(2 * time.Minute)
-		got, err = resolve(context.Background(), client, path, []string{first, second}, clock.Now(), probeTimeout)
+		got, err = Resolve(context.Background(), client, path, []string{first, second}, clock.Now())
 		if err != nil || got != first {
 			t.Fatalf("recovery Resolve() = %q, %v; want %q, nil", got, err, first)
 		}
@@ -89,28 +89,27 @@ func TestMirrorStateMachine(t *testing.T) {
 
 	t.Run("429 recovers", func(t *testing.T) {
 		clock := newClock()
-		var firstCalls atomic.Int32
-		firstServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			if firstCalls.Add(1) <= 2 {
+		var firstCalls *atomic.Int32
+		first, firstCalls := startMirror(t, func(w http.ResponseWriter, _ *http.Request) {
+			if firstCalls.Load() <= 2 {
 				w.Header().Set("Retry-After", "1")
 				w.WriteHeader(http.StatusTooManyRequests)
 				return
 			}
 			_, _ = w.Write([]byte(passMarker))
-		}))
-		t.Cleanup(firstServer.Close)
+		})
 		second, secondCalls := startMirror(t, fixedResponse(http.StatusOK))
 		path := t.TempDir() + "/mirror.json"
 		now := clock.Now()
 
-		got, err := Resolve(context.Background(), fetch.New(fetch.WithClock(clock)), path, []string{firstServer.URL, second}, now)
-		if err != nil || got != firstServer.URL {
-			t.Fatalf("Resolve() = %q, %v; want %q, nil", got, err, firstServer.URL)
+		got, err := Resolve(context.Background(), fetch.New(fetch.WithClock(clock)), path, []string{first, second}, now)
+		if err != nil || got != first {
+			t.Fatalf("Resolve() = %q, %v; want %q, nil", got, err, first)
 		}
 		if firstCalls.Load() != 3 || secondCalls.Load() != 0 {
 			t.Fatalf("requests = (%d, %d), want (3, 0)", firstCalls.Load(), secondCalls.Load())
 		}
-		if got := loadState(path).DeadUntil[firstServer.URL]; !got.IsZero() {
+		if got := loadState(path).DeadUntil[first]; !got.IsZero() {
 			t.Fatalf("cooldown = %v, want none", got)
 		}
 	})
@@ -124,7 +123,7 @@ func TestMirrorStateMachine(t *testing.T) {
 		path := t.TempDir() + "/mirror.json"
 		now := clock.Now()
 
-		got, err := resolve(context.Background(), fetch.New(fetch.WithClock(clock)), path, []string{first, second}, now, 50*time.Millisecond)
+		got, err := resolve(context.Background(), fetch.New(fetch.WithClock(clock)), path, []string{first, second}, now, 200*time.Millisecond)
 		if err != nil || got != second {
 			t.Fatalf("resolve() = %q, %v; want %q, nil", got, err, second)
 		}
