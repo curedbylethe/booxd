@@ -137,7 +137,7 @@ func runGet(args []string, stdout, stderr io.Writer, resolve resolveFunc, newCli
 	if *open {
 		if err := openFile(path); err != nil {
 			if errors.Is(err, exec.ErrNotFound) {
-				_, _ = fmt.Fprintf(stderr, "booxd: cannot open %s: termux-open not found; install termux-tools and open it from Termux\n", path)
+				_, _ = fmt.Fprintf(stderr, "booxd: cannot open %s: termux-open not found; install termux-tools\n", path)
 			} else {
 				_, _ = fmt.Fprintf(stderr, "booxd: cannot open %s: %v\n", path, err)
 			}
