@@ -7,11 +7,72 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 )
+
+type fakeClock struct {
+	mu    sync.Mutex
+	now   time.Time
+	waits []time.Duration
+}
+
+func (c *fakeClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *fakeClock) Wait(ctx context.Context, d time.Duration) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.waits = append(c.waits, d)
+	c.now = c.now.Add(d)
+	return nil
+}
+
+func TestIntervalSpacing(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		interval time.Duration
+		calls    int
+		want     []time.Duration
+	}{
+		{"same host", DefaultInterval, 2, []time.Duration{DefaultInterval}},
+		{"first request", DefaultInterval, 1, nil},
+		{"disabled", 0, 2, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls.Add(1) }))
+			defer server.Close()
+			clock := &fakeClock{now: time.Unix(1, 0)}
+			client := New(WithClock(clock), WithInterval(tc.interval))
+			for range tc.calls {
+				if _, err := client.Get(context.Background(), server.URL); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if int(calls.Load()) != tc.calls || !slices.Equal(clock.waits, tc.want) {
+				t.Fatalf("calls = %d, waits = %v; want %d, %v", calls.Load(), clock.waits, tc.calls, tc.want)
+			}
+		})
+	}
+}
+
+func TestSystemClockWaitHonoursContext(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	if err := (systemClock{}).Wait(ctx, time.Minute); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("wait error = %v", err)
+	}
+}
 
 func TestGetStatus(t *testing.T) {
 	for _, status := range []int{200, 403, 404, 429, 500} {
@@ -121,7 +182,8 @@ func TestGetSerializesHostThroughBodyRead(t *testing.T) {
 	t.Cleanup(unblock)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	client := New()
+	clock := &fakeClock{now: time.Unix(1, 0)}
+	client := New(WithClock(clock))
 	results := make(chan error, 2)
 	request := func() {
 		resp, err := client.Get(ctx, server.URL)
@@ -158,6 +220,9 @@ func TestGetSerializesHostThroughBodyRead(t *testing.T) {
 	if maxInFlight != 1 {
 		t.Fatalf("maximum in-flight requests = %d, want 1", maxInFlight)
 	}
+	if !slices.Equal(clock.waits, []time.Duration{DefaultInterval}) {
+		t.Fatalf("waits = %v", clock.waits)
+	}
 }
 
 func TestGetDifferentHosts(t *testing.T) {
@@ -180,7 +245,8 @@ func TestGetDifferentHosts(t *testing.T) {
 	t.Cleanup(unblock)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	client := New()
+	clock := &fakeClock{now: time.Unix(1, 0)}
+	client := New(WithClock(clock))
 	results := make(chan error, 2)
 	for _, rawURL := range []string{a.URL, b.URL} {
 		go func() {
@@ -208,5 +274,8 @@ func TestGetDifferentHosts(t *testing.T) {
 		case <-ctx.Done():
 			t.Fatal("requests did not complete")
 		}
+	}
+	if len(clock.waits) != 0 {
+		t.Fatalf("waits = %v", clock.waits)
 	}
 }
