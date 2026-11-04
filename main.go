@@ -17,9 +17,9 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, resolveMirror))
 }
 
-type resolveFunc func(ctx context.Context, override string) (string, error)
+type resolveFunc func(ctx context.Context, override string, verbose io.Writer) (string, error)
 
-func resolveMirror(ctx context.Context, override string) (string, error) {
+func resolveMirror(ctx context.Context, override string, verbose io.Writer) (string, error) {
 	if override != "" {
 		return strings.TrimRight(override, "/"), nil
 	}
@@ -27,7 +27,7 @@ func resolveMirror(ctx context.Context, override string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return mirror.Resolve(ctx, fetch.New(), path, mirror.Seeds(), time.Now())
+	return mirror.Resolve(ctx, fetch.New(fetch.WithVerbose(verbose)), path, mirror.Seeds(), time.Now())
 }
 
 func run(args []string, stdout, stderr io.Writer, resolve resolveFunc) int {
@@ -45,10 +45,15 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc) int {
 			flags.PrintDefaults()
 		}
 		override := flags.String("mirror", "", "base URL; skip mirror discovery")
+		verbose := flags.Bool("verbose", false, "log each fetch attempt to stderr")
 		if err := flags.Parse(args[1:]); err != nil {
 			return 2
 		}
-		base, err := resolve(context.Background(), *override)
+		var log io.Writer
+		if *verbose {
+			log = stderr
+		}
+		base, err := resolve(context.Background(), *override, log)
 		if err != nil {
 			_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
 			return 1
