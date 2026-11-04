@@ -130,6 +130,8 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 		return 0
 	case "show":
 		return runShow(args[1:], stdout, stderr, resolve, newClient)
+	case "get":
+		return runGet(args[1:], stdout, stderr, resolve, newClient)
 	case "tui":
 		flags := flag.NewFlagSet("tui", flag.ContinueOnError)
 		flags.SetOutput(stderr)
@@ -161,7 +163,7 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 			return 1
 		}
 		return 0
-	case "get", "serve":
+	case "serve":
 		_, _ = fmt.Fprintf(stdout, "booxd: %s is not implemented yet\n", args[0])
 		return 1
 	default:

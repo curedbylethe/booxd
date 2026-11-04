@@ -11,8 +11,8 @@ metadata and download options. `tui` opens an interactive search screen with a
 result list and local detail pane. Search supports `--page`, `--dump-html`, and a
 disk cache with a 24-hour TTL. Cached output prints
 `cached <age> ago` on stderr. Parsing lives in `internal/parse` and never accesses
-the network. `get` and `serve` remain stubs: they print "not implemented yet"
-and exit 1. Downloads come later.
+the network. `get` downloads one book when supplied with a session cookie file.
+`serve` remains a stub: it prints "not implemented yet" and exits 1.
 No arguments prints usage and exits 2; an unknown command also exits 2.
 Requests to a host run one at a time, with at least one second between starts.
 The client waits after a 429 and retries a 5xx twice. `--verbose` logs attempts.
@@ -22,7 +22,7 @@ The client waits after a 429 and retries a 5xx twice. `--verbose` logs attempts.
 | Command | Output today |
 | -- | -- |
 | `booxd search [--config PATH] [--mirror URL] [--page N] [--dump-html PATH] [--no-cache] [--max-age DURATION] <query>` | `mirror: <url>` on stderr when using network; one tab-separated row per book on stdout; cached rows print `cached <age> ago` on stderr; `no results` on stderr and exit 0 for a miss; exit 1 for fetch or parse failure |
-| `booxd get` | `booxd: get is not implemented yet` |
+| `booxd get [--config PATH] [--cookies PATH] [--mirror URL] [--verbose] <id>` | Uses the supplied session to fetch the book page and first open download option; refuses without `--cookies` and prints the book URL; progress prints whole percentages on stderr; exits 0 when saved/already present, 1 on download failure, 2 on usage or missing-session refusal |
 | `booxd show [--config PATH] [--mirror URL] [--verbose] <id>` | nine labeled metadata lines and download options; all-gated pages print `downloads require a signed-in session`; exit 1 for config, resolve, fetch, status, or parse failure; exit 2 for usage errors |
 | `booxd tui [--mono]` | Interactive search line, result table, local detail pane, and status line; Enter searches or opens details, `j`/`k` or arrows move, `/` edits query, Esc goes back, `?` shows help, and `q` quits outside query entry |
 | `booxd serve` | `booxd: serve is not implemented yet` |
@@ -53,6 +53,21 @@ Successful detail pages are cached for 24 hours under
 `<cache_dir>/booxd/cache`, keyed by `book:<id>`. A fresh cache hit makes no
 request and prints no `mirror:` line. A stale entry is fetched again. `show`
 does not use or obtain a cookie; it reports the account gate and exits 0.
+
+## Get
+
+`booxd get <id> --cookies cookies.txt` loads a Netscape cookie file and reuses
+the session for the fresh book-page request and the first open download option.
+The page is never read from or written to the cache. Without `--cookies`, `get`
+resolves the mirror, prints the book URL, explains that a signed-in session is
+needed, and exits 2. A gated page or a 401, 403, or 407 stops with one error; `get`
+does not try another download option.
+
+Files go to `download_dir`. The transfer keeps interrupted data in `<name>.part`,
+sends `Range` when resuming, checks the response size against `Content-Length`,
+and renames the completed file atomically. Progress prints whole percentages,
+one per line on stderr. If the server omits `Content-Length`, `get` skips progress
+and the size check. Existing files are kept and reported as already downloaded.
 
 ## Configuration
 
@@ -103,16 +118,14 @@ Implemented packages:
 
 - `internal/config`: config path, defaults, TOML loading, and environment overrides.
 - `internal/mirror`: mirror seeds, probing, selected-mirror persistence, and cooldown.
-- `internal/fetch`: the shared HTTP client, per-host throttling, retry/backoff, and cache lookup. A cookie jar remains planned.
+- `internal/fetch`: the shared HTTP client, streaming responses, cookie jar, per-host throttling, retry/backoff, and cache lookup.
 - `internal/cache`: disk query cache with normalized keys, atomic JSON writes, TTL reads, and expiry sweep.
 - `internal/parse`: search and detail HTML into book metadata and download
   options, without network access.
 - `internal/tui`: tcell input, local book navigation, and deliberate full-frame
   redraws; search runs through an injected function.
 
-Package skeletons and their planned responsibilities:
-
-- `internal/down`: gated downloads, `.part` resume, size checks, and atomic renames using fetch.
+- `internal/down`: Netscape cookie loading, gated downloads, `.part` resume, size checks, progress lines, bounded redirects, and atomic renames using fetch.
 
 ## Documentation
 
