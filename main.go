@@ -130,6 +130,16 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 	case "show":
 		return runShow(args[1:], stdout, stderr, resolve, newClient)
 	case "tui":
+		flags := flag.NewFlagSet("tui", flag.ContinueOnError)
+		flags.SetOutput(stderr)
+		flags.Usage = func() {
+			_, _ = fmt.Fprintln(stderr, "usage: booxd tui [flags]")
+			flags.PrintDefaults()
+		}
+		mono := flags.Bool("mono", false, "disable colour")
+		if err := flags.Parse(args[1:]); err != nil {
+			return 2
+		}
 		cfg, err := loadConfig("")
 		if err != nil {
 			_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
@@ -145,7 +155,7 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 			outcome, err := search.search(ctx, query, searchOptions{Page: 1, MaxAge: cache.DefaultTTL})
 			return outcome.Books, err
 		}
-		if err := tui.Run(context.Background(), tui.Options{Search: searchFunc}); err != nil {
+		if err := tui.Run(context.Background(), tui.Options{Search: searchFunc, Mono: monoEnabled(*mono, os.Getenv("NO_COLOR"))}); err != nil {
 			_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
 			return 1
 		}
@@ -157,6 +167,10 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 		_, _ = fmt.Fprintf(stderr, "booxd: unknown command %q\n", args[0])
 		return 2
 	}
+}
+
+func monoEnabled(flagMono bool, noColor string) bool {
+	return flagMono || noColor != ""
 }
 
 func printBooks(stdout io.Writer, books []parse.Book) {

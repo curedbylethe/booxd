@@ -1,28 +1,21 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/uniseg"
 )
 
-var (
-	baseStyle   = tcell.StyleDefault
-	dimStyle    = tcell.StyleDefault.Dim(true)
-	selectStyle = tcell.StyleDefault.Reverse(true)
-)
-
 func draw(screen tcell.Screen, m model) {
 	width, height := screen.Size()
-	screen.Fill(' ', baseStyle)
+	screen.Fill(' ', m.theme.base)
 	if width < 80 || height < 24 {
-		screen.PutStrStyled(0, 0, "need at least 80x24", baseStyle)
+		screen.PutStrStyled(0, 0, "need at least 80x24", m.theme.base)
 		return
 	}
 	if m.help {
-		drawHelp(screen, width, height)
+		drawHelp(screen, m, width, height)
 		return
 	}
 	switch m.view {
@@ -35,7 +28,7 @@ func draw(screen tcell.Screen, m model) {
 
 func drawResults(screen tcell.Screen, m model, width, height int) {
 	search := "search: " + string(m.input)
-	screen.PutStrStyled(0, 0, truncate(search, width), baseStyle)
+	screen.PutStrStyled(0, 0, truncate(search, width), m.theme.base)
 	if m.view == stateQuery {
 		caretX := len("search: ") + uniseg.StringWidth(string(m.input[:m.caret]))
 		if caretX < width {
@@ -43,7 +36,7 @@ func drawResults(screen tcell.Screen, m model, width, height int) {
 			if m.caret < len(m.input) {
 				caret = m.input[m.caret]
 			}
-			screen.SetContent(caretX, 0, caret, nil, selectStyle)
+			screen.SetContent(caretX, 0, caret, nil, m.theme.reverse)
 		}
 	}
 
@@ -60,7 +53,7 @@ func drawResults(screen tcell.Screen, m model, width, height int) {
 		{titleWidth + 38, 8, "SIZE"},
 	}
 	for _, column := range columns {
-		screen.PutStrStyled(column.x, 1, truncate(column.name, column.width), dimStyle)
+		screen.PutStrStyled(column.x, 1, truncate(column.name, column.width), m.theme.dim)
 	}
 
 	visible := height - 3
@@ -70,9 +63,9 @@ func drawResults(screen tcell.Screen, m model, width, height int) {
 			break
 		}
 		y := row + 2
-		style := baseStyle
+		style := m.theme.base
 		if index == m.selected {
-			style = selectStyle
+			style = m.theme.reverse
 			screen.PutStrStyled(0, y, strings.Repeat(" ", width), style)
 		}
 		book := m.books[index]
@@ -85,7 +78,11 @@ func drawResults(screen tcell.Screen, m model, width, height int) {
 	if status == "" {
 		status = "? for help"
 	}
-	screen.PutStrStyled(0, height-1, truncate(status, width), baseStyle)
+	statusStyle := m.theme.base
+	if m.statusErr {
+		statusStyle = m.theme.alert
+	}
+	screen.PutStrStyled(0, height-1, truncate(status, width), statusStyle)
 }
 
 func drawDetail(screen tcell.Screen, m model, width, height int) {
@@ -106,13 +103,15 @@ func drawDetail(screen tcell.Screen, m model, width, height int) {
 			if i >= height-2 {
 				break
 			}
-			screen.PutStrStyled(0, i, truncate(fmt.Sprintf("%s: %s", field.name, field.value), width), baseStyle)
+			label := field.name + ":"
+			screen.PutStrStyled(0, i, label, m.theme.dim)
+			screen.PutStrStyled(len(label)+1, i, truncate(field.value, width-len(label)-1), m.theme.base)
 		}
 	}
-	screen.PutStrStyled(0, height-1, "esc back · q quit", baseStyle)
+	screen.PutStrStyled(0, height-1, "esc back · q quit", m.theme.dim)
 }
 
-func drawHelp(screen tcell.Screen, width, height int) {
+func drawHelp(screen tcell.Screen, m model, width, height int) {
 	lines := []string{
 		"/ focus search",
 		"Enter submit search or open selected result",
@@ -127,9 +126,9 @@ func drawHelp(screen tcell.Screen, width, height int) {
 		if i >= height-1 {
 			break
 		}
-		screen.PutStrStyled(0, i, truncate(line, width), baseStyle)
+		screen.PutStrStyled(0, i, truncate(line, width), m.theme.base)
 	}
-	screen.PutStrStyled(0, height-1, "? or esc closes", baseStyle)
+	screen.PutStrStyled(0, height-1, "? or esc closes", m.theme.dim)
 }
 
 func truncate(s string, width int) string {

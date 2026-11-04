@@ -16,16 +16,18 @@ const (
 )
 
 type model struct {
-	view     viewState
-	input    []rune
-	caret    int
-	query    string
-	books    []parse.Book
-	selected int
-	offset   int
-	status   string
-	help     bool
-	height   int
+	view      viewState
+	input     []rune
+	caret     int
+	query     string
+	books     []parse.Book
+	selected  int
+	offset    int
+	status    string
+	statusErr bool
+	help      bool
+	height    int
+	theme     theme
 }
 
 type action struct {
@@ -167,8 +169,10 @@ func handleKey(m model, ev *tcell.EventKey) (model, action) {
 func applyResults(m model, books []parse.Book, err error) model {
 	if err != nil {
 		m.status = err.Error()
+		m.statusErr = true
 		return m
 	}
+	m.statusErr = false
 	m.books = books
 	m.selected = 0
 	m.offset = 0

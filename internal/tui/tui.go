@@ -15,6 +15,7 @@ type SearchFunc func(ctx context.Context, query string) ([]parse.Book, error)
 type Options struct {
 	Search SearchFunc
 	Screen tcell.Screen
+	Mono   bool
 }
 
 // Run initializes and runs the terminal interface.
@@ -34,13 +35,17 @@ func Run(ctx context.Context, opts Options) error {
 		}
 		defer screen.Fini()
 	}
-	return runScreen(ctx, screen, opts.Search)
+	return runScreenWithTheme(ctx, screen, opts.Search, opts.Mono)
 }
 
 func runScreen(ctx context.Context, screen tcell.Screen, search SearchFunc) error {
+	return runScreenWithTheme(ctx, screen, search, false)
+}
+
+func runScreenWithTheme(ctx context.Context, screen tcell.Screen, search SearchFunc, mono bool) error {
 	screen.HideCursor()
 	_, height := screen.Size()
-	m := model{view: stateQuery, height: height}
+	m := model{view: stateQuery, height: height, theme: newTheme(mono)}
 	draw(screen, m)
 	screen.Show()
 	for {
@@ -65,6 +70,7 @@ func runScreen(ctx context.Context, screen tcell.Screen, search SearchFunc) erro
 			}
 			if act.search {
 				m.status = "…"
+				m.statusErr = false
 				draw(screen, m)
 				screen.Show()
 				books, err := search(ctx, m.query)
