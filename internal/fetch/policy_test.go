@@ -45,3 +45,15 @@ func TestChallenge(t *testing.T) {
 		})
 	}
 }
+
+func TestServerErrorWait(t *testing.T) {
+	for i := 0; i < 100; i++ {
+		for attempt := 1; attempt <= 2; attempt++ {
+			base := serverRetryBase << (attempt - 1)
+			got := serverErrorWait(attempt)
+			if got < base/2 || got >= base {
+				t.Fatalf("attempt %d: %v", attempt, got)
+			}
+		}
+	}
+}

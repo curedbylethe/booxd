@@ -76,7 +76,7 @@ func TestSystemClockWaitHonoursContext(t *testing.T) {
 }
 
 func TestGetStatus(t *testing.T) {
-	for _, status := range []int{200, 403, 404, 429, 500} {
+	for _, status := range []int{200, 403, 404, 429} {
 		t.Run(fmt.Sprint(status), func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != http.MethodGet || r.UserAgent() != userAgent {
@@ -354,5 +354,31 @@ func TestGetChallengeMarksUnhealthy(t *testing.T) {
 	resp, err := client.Get(context.Background(), server.URL)
 	if err != nil || resp.StatusCode != 200 || calls.Load() != 2 {
 		t.Fatalf("response %v error %v calls %d", resp, err, calls.Load())
+	}
+}
+
+func TestGet5xxRetry(t *testing.T) {
+	for _, success := range []bool{true, false} {
+		t.Run(fmt.Sprint(success), func(t *testing.T) {
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				if calls.Add(1) < 3 || !success {
+					w.WriteHeader(503)
+				}
+			}))
+			defer server.Close()
+			clock := &fakeClock{now: time.Unix(1, 0)}
+			resp, err := New(WithClock(clock), WithInterval(0)).Get(context.Background(), server.URL)
+			if calls.Load() != 3 || len(clock.waits) != 2 || clock.waits[0] < 125*time.Millisecond || clock.waits[0] >= 250*time.Millisecond || clock.waits[1] < 250*time.Millisecond || clock.waits[1] >= 500*time.Millisecond {
+				t.Fatalf("calls %d waits %v", calls.Load(), clock.waits)
+			}
+			if success {
+				if err != nil || resp.StatusCode != 200 {
+					t.Fatalf("response %v error %v", resp, err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), "503") || !strings.Contains(err.Error(), strings.TrimPrefix(server.URL, "http://")) {
+				t.Fatalf("error %v", err)
+			}
+		})
 	}
 }
