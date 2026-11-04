@@ -164,7 +164,9 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 			_ = store.Put(cache.Entry{Query: query, Page: *page, Status: resp.StatusCode, FetchedAt: time.Now(), Body: resp.Body})
 		}
 		return code
-	case "get", "show", "tui", "serve":
+	case "show":
+		return runShow(args[1:], stdout, stderr, resolve, newClient)
+	case "get", "tui", "serve":
 		_, _ = fmt.Fprintf(stdout, "booxd: %s is not implemented yet\n", args[0])
 		return 1
 	default:

@@ -44,7 +44,6 @@ func TestRun(t *testing.T) {
 		{name: "missing flag", args: []string{"search", "--mirror"}, code: 2, err: "flag needs an argument: -mirror\n" + help},
 		{name: "help", args: []string{"search", "-h"}, code: 2, err: help},
 		{name: "get", args: []string{"get"}, code: 1, out: "booxd: get is not implemented yet\n"},
-		{name: "show", args: []string{"show"}, code: 1, out: "booxd: show is not implemented yet\n"},
 		{name: "tui", args: []string{"tui"}, code: 1, out: "booxd: tui is not implemented yet\n"},
 		{name: "serve", args: []string{"serve"}, code: 1, out: "booxd: serve is not implemented yet\n"},
 	} {
