@@ -39,8 +39,8 @@ func Run(ctx context.Context, opts Options) error {
 
 func runScreen(ctx context.Context, screen tcell.Screen, search SearchFunc) error {
 	screen.HideCursor()
-	width, height := screen.Size()
-	m := model{view: stateQuery, width: width, height: height}
+	_, height := screen.Size()
+	m := model{view: stateQuery, height: height}
 	draw(screen, m)
 	screen.Show()
 	for {
@@ -52,7 +52,7 @@ func runScreen(ctx context.Context, screen tcell.Screen, search SearchFunc) erro
 		case *tcell.EventError:
 			return fmt.Errorf("%s", ev.Error())
 		case *tcell.EventResize:
-			m.width, m.height = screen.Size()
+			_, m.height = screen.Size()
 			m.offset = visibleOffset(m.selected, m.offset, m.height-3, len(m.books))
 			screen.Sync()
 			draw(screen, m)

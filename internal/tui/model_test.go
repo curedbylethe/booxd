@@ -78,6 +78,10 @@ func TestHandleKeyStates(t *testing.T) {
 		{"detail q quits", model{view: stateDetail}, tcell.KeyRune, 'q', stateDetail, false, "", 0, action{quit: true}},
 		{"ctrl c quits", model{view: stateQuery}, tcell.KeyCtrlC, 0, stateQuery, false, "", 0, action{quit: true}},
 		{"up no-op", model{view: stateResults, books: []parse.Book{book}}, tcell.KeyUp, 0, stateResults, false, "", 0, action{}},
+		{"down moves", model{view: stateResults, books: []parse.Book{book, book}}, tcell.KeyDown, 0, stateResults, false, "", 0, action{dirty: true}},
+		{"up moves", model{view: stateResults, books: []parse.Book{book, book}, selected: 1}, tcell.KeyUp, 0, stateResults, false, "", 0, action{dirty: true}},
+		{"j empty no-op", model{view: stateResults}, tcell.KeyRune, 'j', stateResults, false, "", 0, action{}},
+		{"k empty no-op", model{view: stateResults}, tcell.KeyRune, 'k', stateResults, false, "", 0, action{}},
 		{"detail j no-op", model{view: stateDetail, books: []parse.Book{book}}, tcell.KeyRune, 'j', stateDetail, false, "", 0, action{}},
 	}
 	for _, tt := range tests {
@@ -107,6 +111,12 @@ func TestSelectionClampsAndOffsetFollows(t *testing.T) {
 	}
 	if m.selected != 0 || m.offset != 0 {
 		t.Fatalf("top selection=%d offset=%d", m.selected, m.offset)
+	}
+}
+
+func TestVisibleOffsetResetsWhenAllRowsFit(t *testing.T) {
+	if got := visibleOffset(7, 5, 57, 30); got != 0 {
+		t.Fatalf("visibleOffset() = %d, want 0", got)
 	}
 }
 

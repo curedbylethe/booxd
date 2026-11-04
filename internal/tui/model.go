@@ -25,7 +25,6 @@ type model struct {
 	offset   int
 	status   string
 	help     bool
-	width    int
 	height   int
 }
 
@@ -136,14 +135,7 @@ func handleKey(m model, ev *tcell.EventKey) (model, action) {
 				return m, action{dirty: true}
 			}
 		}
-		if len(m.books) > 0 {
-			if m.selected < 0 {
-				m.selected = 0
-			}
-			if m.selected >= len(m.books) {
-				m.selected = len(m.books) - 1
-			}
-		}
+		m.selected = max(0, min(m.selected, len(m.books)-1))
 		oldOffset := m.offset
 		m.offset = visibleOffset(m.selected, m.offset, m.height-3, len(m.books))
 		if m.selected != oldSelected || m.offset != oldOffset {
@@ -198,7 +190,7 @@ func visibleOffset(selected, offset, visible, count int) int {
 	if selected >= offset+visible {
 		offset = selected - visible + 1
 	}
-	if max := count - visible; offset > max && max > 0 {
+	if max := count - visible; offset > max {
 		offset = max
 	}
 	if offset < 0 {
