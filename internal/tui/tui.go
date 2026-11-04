@@ -38,10 +38,6 @@ func Run(ctx context.Context, opts Options) error {
 	return runScreenWithTheme(ctx, screen, opts.Search, opts.Mono)
 }
 
-func runScreen(ctx context.Context, screen tcell.Screen, search SearchFunc) error {
-	return runScreenWithTheme(ctx, screen, search, false)
-}
-
 func runScreenWithTheme(ctx context.Context, screen tcell.Screen, search SearchFunc, mono bool) error {
 	screen.HideCursor()
 	_, height := screen.Size()

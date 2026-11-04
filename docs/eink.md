@@ -26,7 +26,7 @@ The panel is the constraint, not the terminal. A full refresh stays visible for 
 
 **Why:** A blinking cursor repeatedly refreshes one panel region.
 
-**Guard:** `TestCursorHidden` and `TestEveryCellUsesAThemeStyle`.
+**Guard:** `TestCursorHidden` and `TestFrameAudit`.
 
 ## Show one frame per state change
 
@@ -34,7 +34,7 @@ The panel is the constraint, not the terminal. A full refresh stays visible for 
 
 **Why:** Each full refresh is visible. Extra frames add flashes without useful state.
 
-**Guard:** `TestFrameCount`; source audit keeps the production call site in `paint`.
+**Guard:** `TestFrameCount`. Review check: `grep -n '\.Show()' internal/tui/tui.go` should show only `paint`.
 
 ## Make colour additive
 

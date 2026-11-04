@@ -46,6 +46,14 @@ func TestHandleKeyQuery(t *testing.T) {
 	}
 }
 
+func TestEmptyQueryHintClearsErrorStyle(t *testing.T) {
+	m := model{view: stateQuery, status: "offline", statusErr: true}
+	got, act := handleKey(m, tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
+	if got.status != "type a query" || got.statusErr || act != (action{dirty: true}) {
+		t.Fatalf("status=%q statusErr=%t action=%+v", got.status, got.statusErr, act)
+	}
+}
+
 func TestHandleKeyStates(t *testing.T) {
 	book := parse.Book{ID: "1"}
 	tests := []struct {

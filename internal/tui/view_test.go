@@ -56,6 +56,11 @@ func TestFrameAudit(t *testing.T) {
 			if len(cells) != width*height {
 				t.Fatalf("cell count=%d, want %d", len(cells), width*height)
 			}
+			for i, cell := range cells {
+				if cell.Style != style.base && cell.Style != style.dim && cell.Style != style.reverse && cell.Style != style.alert {
+					t.Fatalf("cell %d uses unapproved style %v", i, cell.Style)
+				}
+			}
 
 			for y := 0; y < height; y++ {
 				first := -1
