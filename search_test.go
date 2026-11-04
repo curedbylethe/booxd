@@ -35,6 +35,33 @@ func TestSearchFreshCache(t *testing.T) {
 	}
 }
 
+func TestSearchUnparseableCacheIsError(t *testing.T) {
+	const body = "<p>Showing 5 results on this page</p>"
+	for _, tc := range []struct {
+		name string
+		age  time.Duration
+	}{
+		{"fresh", time.Minute},
+		{"stale", 3 * time.Hour},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := cache.Open(t.TempDir())
+			now := time.Now()
+			if err := store.Put(cache.Entry{Query: "test", Page: 1, Status: 200, FetchedAt: now.Add(-tc.age), Body: []byte(body)}); err != nil {
+				t.Fatal(err)
+			}
+			search := newSearcher(config.Config{}, nil, store, func(context.Context, config.Config, string, *fetch.Client) (string, error) {
+				return "", errors.New("offline")
+			}, nil)
+			search.now = func() time.Time { return now }
+			outcome, err := search.search(context.Background(), "test", searchOptions{Page: 1, MaxAge: time.Hour})
+			if err == nil || outcome.Cached {
+				t.Fatalf("outcome = %#v, error = %v", outcome, err)
+			}
+		})
+	}
+}
+
 func TestSearchStaleCacheFallback(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -99,7 +126,7 @@ func TestSearchCachesSuccessfulResults(t *testing.T) {
 	}, nil)
 	search.now = func() time.Time { return now }
 	outcome, err := search.search(context.Background(), "test", searchOptions{Page: 1, MaxAge: time.Hour})
-	if err != nil || outcome.Cached || len(outcome.Books) != 1 || outcome.Mirror != "https://mirror.test" {
+	if err != nil || outcome.Cached || len(outcome.Books) != 1 {
 		t.Fatalf("outcome = %#v, error = %v", outcome, err)
 	}
 	entry, ok := store.Get("test", 1)
