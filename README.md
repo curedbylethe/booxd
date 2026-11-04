@@ -115,6 +115,8 @@ Package skeletons and their planned responsibilities:
 
 ## Documentation
 
+- [docs/eink.md](docs/eink.md): the e-ink redraw policy and the reason for each rule.
+
 See [AGENTS.md](AGENTS.md) for repository constraints and
 [project conventions](https://linear.app/curedbylethe/document/booxd-project-conventions-bf3f21ac3632)
 for backlog structure.
