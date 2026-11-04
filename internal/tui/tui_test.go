@@ -189,6 +189,140 @@ func TestRunScreenReturnsEventError(t *testing.T) {
 	}
 }
 
+func TestFrameCount(t *testing.T) {
+	queryResults := func() []tcell.Event {
+		return []tcell.Event{
+			tcell.NewEventKey(tcell.KeyRune, 'x', tcell.ModNone),
+			tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone),
+		}
+	}
+	queryWithJ := func(count int) []tcell.Event {
+		events := queryResults()
+		for i := 0; i < count; i++ {
+			events = append(events, tcell.NewEventKey(tcell.KeyRune, 'j', tcell.ModNone))
+		}
+		return events
+	}
+	runes := func(value string) []tcell.Event {
+		events := make([]tcell.Event, 0, len(value))
+		for _, r := range value {
+			events = append(events, tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
+		}
+		return events
+	}
+	key := func(k tcell.Key, r rune) tcell.Event {
+		return tcell.NewEventKey(k, r, tcell.ModNone)
+	}
+	theme := newTheme(false)
+	tests := []struct {
+		name          string
+		before        []tcell.Event
+		target        []tcell.Event
+		baseShows     int
+		targetShows   int
+		wantCalls     int
+		cellX         int
+		cellY         int
+		wantRune      rune
+		wantCellStyle tcell.Style
+	}{
+		{name: "runScreen starts", baseShows: 1, wantRune: 's', wantCellStyle: theme.base},
+		{name: "j from row 0", before: queryResults(), target: []tcell.Event{key(tcell.KeyRune, 'j')}, baseShows: 4, targetShows: 1, wantCalls: 1, cellY: 3, wantRune: 'T', wantCellStyle: theme.reverse},
+		{name: "k at row 0 is a no-op", before: queryResults(), target: []tcell.Event{key(tcell.KeyRune, 'k')}, baseShows: 4, wantCalls: 1, cellY: 2, wantRune: 'T', wantCellStyle: theme.reverse},
+		{name: "j at row 19 is a no-op", before: queryWithJ(19), target: []tcell.Event{key(tcell.KeyRune, 'j')}, baseShows: 23, targetShows: 0, wantCalls: 1, cellY: 21, wantRune: 'T', wantCellStyle: theme.reverse},
+		{name: "Down at row 19 is a no-op", before: queryWithJ(19), target: []tcell.Event{key(tcell.KeyDown, 0)}, baseShows: 23, targetShows: 0, wantCalls: 1, cellY: 21, wantRune: 'T', wantCellStyle: theme.reverse},
+		{name: "Up at row 0 is a no-op", before: queryResults(), target: []tcell.Event{key(tcell.KeyUp, 0)}, baseShows: 4, targetShows: 0, wantCalls: 1, cellY: 2, wantRune: 'T', wantCellStyle: theme.reverse},
+		{name: "x while help is open is a no-op", before: append(queryResults(), key(tcell.KeyRune, '?')), target: []tcell.Event{key(tcell.KeyRune, 'x')}, baseShows: 5, targetShows: 0, wantCalls: 1, wantRune: '/', wantCellStyle: theme.base},
+		{name: "j in detail is a no-op", before: append(queryResults(), key(tcell.KeyEnter, 0)), target: []tcell.Event{key(tcell.KeyRune, 'j')}, baseShows: 5, targetShows: 0, wantCalls: 1, wantRune: 't', wantCellStyle: theme.dim},
+		{name: "/ from results", before: queryResults(), target: []tcell.Event{key(tcell.KeyRune, '/')}, baseShows: 4, targetShows: 1, wantCalls: 1, wantRune: 's', wantCellStyle: theme.base},
+		{name: "Esc from query to results", target: []tcell.Event{key(tcell.KeyEscape, 0)}, baseShows: 1, targetShows: 1, wantRune: 's', wantCellStyle: theme.base},
+		{name: "Esc from results to query", before: queryResults(), target: []tcell.Event{key(tcell.KeyEscape, 0)}, baseShows: 4, targetShows: 1, wantCalls: 1, wantRune: 's', wantCellStyle: theme.base},
+		{name: "Enter submits dune", before: runes("dune"), target: []tcell.Event{key(tcell.KeyEnter, 0)}, baseShows: 5, targetShows: 2, wantCalls: 1, cellY: 23, wantRune: '2', wantCellStyle: theme.base},
+		{name: "Enter with an empty query", target: []tcell.Event{key(tcell.KeyEnter, 0)}, baseShows: 1, targetShows: 1, cellY: 23, wantRune: 't', wantCellStyle: theme.base},
+		{name: "? then ?", before: queryResults(), target: []tcell.Event{key(tcell.KeyRune, '?'), key(tcell.KeyRune, '?')}, baseShows: 4, targetShows: 2, wantCalls: 1, cellY: 2, wantRune: 'T', wantCellStyle: theme.reverse},
+		{name: "Enter from results opens detail", before: queryResults(), target: []tcell.Event{key(tcell.KeyEnter, 0)}, baseShows: 4, targetShows: 1, wantCalls: 1, wantRune: 't', wantCellStyle: theme.dim},
+		{name: "same-size resize redraws once", before: queryResults(), target: []tcell.Event{tcell.NewEventResize(80, 24)}, baseShows: 4, targetShows: 1, wantCalls: 1, wantRune: 's', wantCellStyle: theme.base},
+		{name: "q quits without another frame", before: queryResults(), target: []tcell.Event{key(tcell.KeyRune, 'q')}, baseShows: 4, wantCalls: 1, cellY: 2, wantRune: 'T', wantCellStyle: theme.reverse},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			screen := newCountingScreen(t, 80, 24)
+			events := append(append([]tcell.Event{}, tt.before...), tt.target...)
+			events = append(events, key(tcell.KeyCtrlC, 0))
+			screen.scriptEvents = events
+			calls := 0
+			search := func(context.Context, string) ([]parse.Book, error) {
+				calls++
+				return booksForTest(20), nil
+			}
+			if err := runScreen(context.Background(), screen, search); err != nil {
+				t.Fatal(err)
+			}
+			if screen.postErr != nil {
+				t.Fatalf("script event: %v", screen.postErr)
+			}
+			if want := tt.baseShows + tt.targetShows; screen.shows != want {
+				t.Fatalf("Show calls=%d, want %d", screen.shows, want)
+			}
+			if calls != tt.wantCalls {
+				t.Fatalf("search calls=%d, want %d", calls, tt.wantCalls)
+			}
+			cells, width, _ := screen.GetContents()
+			cell := cells[tt.cellY*width+tt.cellX]
+			if len(cell.Runes) == 0 || cell.Runes[0] != tt.wantRune {
+				t.Fatalf("cell (%d,%d)=%q, want first rune %q", tt.cellX, tt.cellY, string(cell.Runes), tt.wantRune)
+			}
+			if cell.Style != tt.wantCellStyle {
+				t.Fatalf("cell (%d,%d) style=%v, want %v", tt.cellX, tt.cellY, cell.Style, tt.wantCellStyle)
+			}
+		})
+	}
+}
+
+type countingScreen struct {
+	tcell.SimulationScreen
+	shows, hides, showCursor int
+	scriptEvents             []tcell.Event
+	scriptIndex              int
+	postErr                  error
+}
+
+func (s *countingScreen) Show() {
+	s.shows++
+	s.SimulationScreen.Show()
+	if s.scriptIndex < len(s.scriptEvents) {
+		s.postNextScriptEvent()
+	}
+	if s.scriptIndex == len(s.scriptEvents)-1 {
+		s.postNextScriptEvent()
+	}
+}
+
+func (s *countingScreen) postNextScriptEvent() {
+	if s.scriptIndex >= len(s.scriptEvents) || s.postErr != nil {
+		return
+	}
+	s.postErr = s.PostEvent(s.scriptEvents[s.scriptIndex])
+	if s.postErr == nil {
+		s.scriptIndex++
+	}
+}
+
+func (s *countingScreen) HideCursor() {
+	s.hides++
+	s.SimulationScreen.HideCursor()
+}
+
+func (s *countingScreen) ShowCursor(x, y int) {
+	s.showCursor++
+	s.SimulationScreen.ShowCursor(x, y)
+}
+
+func newCountingScreen(t *testing.T, width, height int) *countingScreen {
+	t.Helper()
+	return &countingScreen{SimulationScreen: newSimulation(t, width, height)}
+}
+
 func newSimulation(t *testing.T, width, height int) tcell.SimulationScreen {
 	t.Helper()
 	screen := tcell.NewSimulationScreen("UTF-8")
