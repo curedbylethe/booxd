@@ -5,9 +5,10 @@ This repository is the skeleton for searching, inspecting, and fetching books.
 
 ## Status
 
-`search` discovers a mirror, then prints "not implemented yet" and exits 1. It
-does not fetch search results yet. The other four commands remain stubs: they print
-"not implemented yet" and exit 1. Parsing, downloads, and the TUI come later.
+`search` fetches one results page and prints parsed book records. It supports
+`--page` and `--dump-html`. Parsing lives in `internal/parse` and never accesses
+the network. The other four commands remain stubs: they print "not implemented
+yet" and exit 1. Downloads and the TUI come later.
 No arguments prints usage and exits 2; an unknown command also exits 2.
 Requests to a host run one at a time, with at least one second between starts.
 The client waits after a 429 and retries a 5xx twice. `--verbose` logs attempts.
@@ -16,14 +17,16 @@ The client waits after a 429 and retries a 5xx twice. `--verbose` logs attempts.
 
 | Command | Output today |
 | -- | -- |
-| `booxd search [--verbose]` | `mirror: <url>` on stderr, then `booxd: search is not implemented yet` on stdout; exit 1 |
+| `booxd search [--mirror URL] [--page N] [--dump-html PATH] <query>` | `mirror: <url>` on stderr, then one tab-separated row per book on stdout; `no results` on stderr and exit 0 for a miss; exit 1 for fetch or parse failure |
 | `booxd get` | `booxd: get is not implemented yet` |
 | `booxd show` | `booxd: show is not implemented yet` |
 | `booxd tui` | `booxd: tui is not implemented yet` |
 | `booxd serve` | `booxd: serve is not implemented yet` |
 
 `booxd search --mirror URL` uses `URL` and skips discovery entirely. Put flags
-before query arguments; `booxd search -h` shows search usage and exits 2.
+before query arguments; multiple words are joined with spaces. Page defaults to 1.
+`--dump-html PATH` writes the raw response body before parsing. A missing query or
+page below 1 exits 2; `booxd search -h` shows search usage and exits 2.
 `booxd search --verbose` logs host, status, and wait for each attempt to stderr.
 It also reports waits before they begin.
 
