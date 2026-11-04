@@ -1,14 +1,11 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"flag"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -99,71 +96,36 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 			store = cache.Open(dir)
 			_ = store.Sweep(cache.SweepAge)
 		}
-		var cached cache.Entry
-		hit := false
-		serveCached := func() int {
-			printCached(stderr, time.Since(cached.FetchedAt))
-			if *dump != "" {
-				if err := os.WriteFile(*dump, cached.Body, 0o644); err != nil {
-					_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
-					return 1
-				}
-			}
-			code, _ := renderSearch(stdout, stderr, cached.Body)
-			return code
-		}
-		if store != nil && !*noCache {
-			cached, hit = store.Get(query, *page)
-			age := time.Since(cached.FetchedAt)
-			if hit && age >= 0 && age < *maxAge {
-				return serveCached()
-			}
-		}
 		var log io.Writer
 		if *verbose {
 			log = stderr
 		}
-		client := newClient(cfg, log)
 		ctx := context.Background()
-		base, err := resolve(ctx, cfg, *override, client)
-		if err != nil {
-			if hit {
-				return serveCached()
-			}
-			_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
-			return 1
+		resolveSearch := func(ctx context.Context, cfg config.Config, _ string, client *fetch.Client) (string, error) {
+			return resolve(ctx, cfg, *override, client)
 		}
-		_, _ = fmt.Fprintf(stderr, "mirror: %s\n", base)
-		searchURL := base + "/search?q=" + url.QueryEscape(query)
-		if *page > 1 {
-			searchURL += "&page=" + strconv.Itoa(*page)
-		}
-		resp, err := client.Get(ctx, searchURL)
-		if err != nil {
-			if hit {
-				return serveCached()
-			}
-			_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
-			return 1
-		}
-		if *dump != "" {
-			if err := os.WriteFile(*dump, resp.Body, 0o644); err != nil {
+		search := newSearcher(cfg, nil, store, resolveSearch, stderr)
+		search.clientFactory = func() *fetch.Client { return newClient(cfg, log) }
+		outcome, err := search.search(ctx, query, searchOptions{Page: *page, MaxAge: *maxAge, NoCache: *noCache})
+		if *dump != "" && outcome.Body != nil {
+			if err := os.WriteFile(*dump, outcome.Body, 0o644); err != nil {
 				_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
 				return 1
 			}
 		}
-		if resp.StatusCode != 200 {
-			if hit {
-				return serveCached()
-			}
-			_, _ = fmt.Fprintf(stderr, "booxd: search: status %d\n", resp.StatusCode)
+		if err != nil && !outcome.Cached {
+			_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
 			return 1
 		}
-		code, count := renderSearch(stdout, stderr, resp.Body)
-		if code == 0 && count > 0 && store != nil {
-			_ = store.Put(cache.Entry{Query: query, Page: *page, Status: resp.StatusCode, FetchedAt: time.Now(), Body: resp.Body})
+		if outcome.Cached {
+			printCached(stderr, outcome.Age)
 		}
-		return code
+		if len(outcome.Books) == 0 {
+			_, _ = fmt.Fprintln(stderr, "no results")
+			return 0
+		}
+		printBooks(stdout, outcome.Books)
+		return 0
 	case "show":
 		return runShow(args[1:], stdout, stderr, resolve, newClient)
 	case "get", "tui", "serve":
@@ -175,20 +137,10 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 	}
 }
 
-func renderSearch(stdout, stderr io.Writer, body []byte) (int, int) {
-	books, err := parse.Search(bytes.NewReader(body))
-	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
-		return 1, 0
-	}
-	if len(books) == 0 {
-		_, _ = fmt.Fprintln(stderr, "no results")
-		return 0, 0
-	}
+func printBooks(stdout io.Writer, books []parse.Book) {
 	for _, b := range books {
 		_, _ = fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\t%s\t%s\n", b.ID, b.Title, b.Author, b.Year, b.Format, b.Size)
 	}
-	return 0, len(books)
 }
 
 func printCached(w io.Writer, age time.Duration) {
