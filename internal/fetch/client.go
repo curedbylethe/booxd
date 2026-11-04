@@ -39,6 +39,13 @@ func (systemClock) Wait(ctx context.Context, d time.Duration) error {
 // Option configures a client.
 type Option func(*Client)
 
+// Lookup returns a cached response for rawURL. ok is false on a miss.
+// It must not perform network I/O.
+type Lookup func(ctx context.Context, rawURL string) (status int, body []byte, ok bool)
+
+// WithLookup sets the cache lookup used before fetching.
+func WithLookup(lookup Lookup) Option { return func(c *Client) { c.lookup = lookup } }
+
 // WithInterval sets the minimum spacing between request starts.
 func WithInterval(d time.Duration) Option { return func(c *Client) { c.interval = d } }
 
@@ -63,6 +70,7 @@ type Client struct {
 	interval  time.Duration
 	verbose   io.Writer
 	verboseMu sync.Mutex
+	lookup    Lookup
 }
 
 // New returns the shared HTTP client.
@@ -95,6 +103,11 @@ func (c *Client) Get(ctx context.Context, rawURL string) (*Response, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return nil, err
+	}
+	if c.lookup != nil {
+		if status, body, ok := c.lookup(ctx, rawURL); ok {
+			return &Response{StatusCode: status, Body: body}, nil
+		}
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
