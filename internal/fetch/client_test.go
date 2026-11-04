@@ -1,9 +1,11 @@
 package fetch
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -380,5 +382,49 @@ func TestGet5xxRetry(t *testing.T) {
 				t.Fatalf("error %v", err)
 			}
 		})
+	}
+}
+
+func TestGetVerbose(t *testing.T) {
+	for _, verbose := range []bool{false, true} {
+		t.Run(fmt.Sprint(verbose), func(t *testing.T) {
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				if calls.Add(1) == 1 {
+					w.WriteHeader(429)
+				}
+			}))
+			defer server.Close()
+			var log bytes.Buffer
+			var writer io.Writer
+			if verbose {
+				writer = &log
+			}
+			clock := &fakeClock{now: time.Unix(1, 0)}
+			_, err := New(WithClock(clock), WithVerbose(writer)).Get(context.Background(), server.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if verbose {
+				for _, part := range []string{"host=" + strings.TrimPrefix(server.URL, "http://"), "status=- wait=0s", "status=429 wait=1m0s"} {
+					if !strings.Contains(log.String(), part) {
+						t.Fatalf("missing %q in %q", part, log.String())
+					}
+				}
+			} else if log.Len() != 0 {
+				t.Fatalf("unexpected log %q", log.String())
+			}
+		})
+	}
+}
+
+func TestGet429InterruptedIntervalReturnsResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.Header().Set("Retry-After", "0"); w.WriteHeader(429) }))
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	resp, err := New().Get(ctx, server.URL)
+	if err != nil || resp == nil || resp.StatusCode != 429 {
+		t.Fatalf("response %v error %v", resp, err)
 	}
 }

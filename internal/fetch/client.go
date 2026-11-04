@@ -42,6 +42,9 @@ type Option func(*Client)
 // WithInterval sets the minimum spacing between request starts.
 func WithInterval(d time.Duration) Option { return func(c *Client) { c.interval = d } }
 
+// WithVerbose enables attempt logging to w.
+func WithVerbose(w io.Writer) Option { return func(c *Client) { c.verbose = w } }
+
 // WithClock sets the clock used for request spacing.
 func WithClock(clock Clock) Option { return func(c *Client) { c.clock = clock } }
 
@@ -54,10 +57,12 @@ type hostState struct {
 
 // Client sends requests through a shared transport, one at a time per host.
 type Client struct {
-	http     *http.Client
-	hosts    sync.Map
-	clock    Clock
-	interval time.Duration
+	http      *http.Client
+	hosts     sync.Map
+	clock     Clock
+	interval  time.Duration
+	verbose   io.Writer
+	verboseMu sync.Mutex
 }
 
 // New returns the shared HTTP client.
@@ -105,11 +110,23 @@ func (c *Client) Get(ctx context.Context, rawURL string) (*Response, error) {
 		return nil, fmt.Errorf("%w: %s", ErrHostUnhealthy, u.Host)
 	}
 	// Hold the host slot across backoff so other requests cannot bypass it.
+	status := "-"
+	var waited time.Duration
+	var last429 *Response
 	for attempt := 1; ; attempt++ {
 		if d := st.next.Sub(c.clock.Now()); d > 0 {
 			if err := c.clock.Wait(ctx, d); err != nil {
+				if last429 != nil {
+					return last429, nil
+				}
 				return nil, err
 			}
+			waited += d
+		}
+		if c.verbose != nil {
+			c.verboseMu.Lock()
+			_, _ = fmt.Fprintf(c.verbose, "fetch: host=%s attempt=%d status=%s wait=%s\n", u.Host, attempt, status, waited)
+			c.verboseMu.Unlock()
 		}
 		st.next = c.clock.Now().Add(c.interval)
 		resp, err := c.http.Do(req)
@@ -123,19 +140,27 @@ func (c *Client) Get(ctx context.Context, rawURL string) (*Response, error) {
 		}
 		result := &Response{StatusCode: resp.StatusCode, Header: resp.Header.Clone(), Body: body}
 		if result.StatusCode == http.StatusTooManyRequests {
+			last429 = result
 			st.streak++
 			if attempt == maxAttempts {
 				return result, nil
 			}
-			if err := c.clock.Wait(ctx, retryWait(result.Header, st.streak, c.clock.Now())); err != nil {
+			wait := retryWait(result.Header, st.streak, c.clock.Now())
+			if err := c.clock.Wait(ctx, wait); err != nil {
 				return result, nil
 			}
+			waited = wait
+			status = fmt.Sprint(result.StatusCode)
 			continue
 		}
+		last429 = nil
 		st.streak = 0
 		if result.StatusCode >= 500 && result.StatusCode <= 599 {
 			if attempt < maxAttempts {
-				if err := c.clock.Wait(ctx, serverErrorWait(attempt)); err == nil {
+				wait := serverErrorWait(attempt)
+				if err := c.clock.Wait(ctx, wait); err == nil {
+					waited = wait
+					status = fmt.Sprint(result.StatusCode)
 					continue
 				}
 			}
