@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -103,7 +105,15 @@ func TestResolve(t *testing.T) {
 						if tt.statuses[i] == 403 || tt.statuses[i] == 404 {
 							label = "dead"
 						}
-						tried = append(tried, seed+" ("+label+")")
+						reason := fmt.Sprintf("status %d", tt.statuses[i])
+						if tt.statuses[i] >= 500 {
+							u, err := url.Parse(seed)
+							if err != nil {
+								t.Fatal(err)
+							}
+							reason = fmt.Sprintf("fetch: %s returned %d %s after 3 attempts", u.Host, tt.statuses[i], http.StatusText(tt.statuses[i]))
+						}
+						tried = append(tried, fmt.Sprintf("%s (%s: %s)", seed, label, reason))
 					}
 					if want := "no working mirror: " + strings.Join(tried, ", "); err.Error() != want {
 						t.Fatalf("error = %v, want %q", err, want)
