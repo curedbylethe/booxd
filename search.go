@@ -24,7 +24,6 @@ type searchOptions struct {
 type searchOutcome struct {
 	Books  []parse.Book
 	Body   []byte
-	Mirror string
 	Cached bool
 	Age    time.Duration
 }
@@ -53,7 +52,7 @@ func (s *searcher) search(ctx context.Context, query string, opts searchOptions)
 	if hit && age >= 0 && age < opts.MaxAge {
 		books, err := parse.Search(bytes.NewReader(cached.Body))
 		if err != nil {
-			return searchOutcome{Body: cached.Body, Cached: true, Age: age}, err
+			return searchOutcome{Body: cached.Body}, err
 		}
 		return searchOutcome{Books: books, Body: cached.Body, Cached: true, Age: age}, nil
 	}
@@ -66,7 +65,7 @@ func (s *searcher) search(ctx context.Context, query string, opts searchOptions)
 		}
 		books, parseErr := parse.Search(bytes.NewReader(cached.Body))
 		if parseErr != nil {
-			return searchOutcome{Body: cached.Body, Cached: true, Age: age}, parseErr
+			return searchOutcome{Body: cached.Body}, parseErr
 		}
 		return searchOutcome{Books: books, Body: cached.Body, Cached: true, Age: age}, err
 	}
@@ -85,19 +84,19 @@ func (s *searcher) search(ctx context.Context, query string, opts searchOptions)
 	if err != nil {
 		return fallback(err)
 	}
-	body := append([]byte{}, resp.Body...)
+	body := resp.Body
 	if resp.StatusCode != 200 {
 		if hit {
 			return fallback(fmt.Errorf("search: status %d", resp.StatusCode))
 		}
-		return searchOutcome{Body: body, Mirror: base}, fmt.Errorf("search: status %d", resp.StatusCode)
+		return searchOutcome{Body: body}, fmt.Errorf("search: status %d", resp.StatusCode)
 	}
 	books, err := parse.Search(bytes.NewReader(body))
 	if err != nil {
-		return searchOutcome{Body: body, Mirror: base}, err
+		return searchOutcome{Body: body}, err
 	}
 	if len(books) > 0 && s.store != nil {
 		_ = s.store.Put(cache.Entry{Query: query, Page: opts.Page, Status: resp.StatusCode, FetchedAt: s.now(), Body: body})
 	}
-	return searchOutcome{Books: books, Body: body, Mirror: base}, nil
+	return searchOutcome{Books: books, Body: body}, nil
 }
