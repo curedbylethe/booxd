@@ -22,7 +22,7 @@ The client waits after a 429 and retries a 5xx twice. `--verbose` logs attempts.
 | Command | Output today |
 | -- | -- |
 | `booxd search [--config PATH] [--mirror URL] [--page N] [--dump-html PATH] [--no-cache] [--max-age DURATION] <query>` | `mirror: <url>` on stderr when using network; one tab-separated row per book on stdout; cached rows print `cached <age> ago` on stderr; `no results` on stderr and exit 0 for a miss; exit 1 for fetch or parse failure |
-| `booxd get [--config PATH] [--cookies PATH] [--mirror URL] [--verbose] <id>` | Uses the supplied session to fetch the book page and first open download option; refuses without `--cookies` and prints the book URL; progress prints whole percentages on stderr; exits 0 when saved/already present, 1 on download failure, 2 on usage or missing-session refusal |
+| `booxd get [--config PATH] [--cookies PATH] [--mirror URL] [--verbose] [--open] <id>` | Uses the supplied session to fetch the book page and first open download option; refuses without `--cookies` and prints the book URL; progress prints whole percentages on stderr; --open opens the finished file with termux-open and a missing command prints one error line; exits 0 when saved/already present, 1 on download or open failure, 2 on usage or missing-session refusal |
 | `booxd show [--config PATH] [--mirror URL] [--verbose] <id>` | nine labeled metadata lines and download options; all-gated pages print `downloads require a signed-in session`; exit 1 for config, resolve, fetch, status, or parse failure; exit 2 for usage errors |
 | `booxd tui [--mono]` | Interactive search line, result table, local detail pane, and status line; Enter searches or opens details, `j`/`k` or arrows move, `/` edits query, Esc goes back, `?` shows help, and `q` quits outside query entry |
 | `booxd serve` | `booxd: serve is not implemented yet` |
@@ -56,7 +56,7 @@ does not use or obtain a cookie; it reports the account gate and exits 0.
 
 ## Get
 
-`booxd get <id> --cookies cookies.txt` loads a Netscape cookie file and reuses
+`booxd get --cookies cookies.txt <id>` loads a Netscape cookie file and reuses
 the session for the fresh book-page request and the first open download option.
 The page is never read from or written to the cache. Without `--cookies`, `get`
 resolves the mirror, prints the book URL, explains that a signed-in session is
@@ -74,6 +74,10 @@ and the size check. The configured `request_timeout` bounds the book-page
 request. Download response headers have a 30-second wait limit, but the body
 transfer has no overall timeout. Existing files are kept and reported as already
 downloaded.
+
+In Termux, `--open` runs `termux-open` after saving the file or finding it already
+downloaded. Android opens the default handler for that file type. If the command
+is missing, `get` prints a clear error on stderr and exits 1; the file remains saved.
 
 ## Configuration
 
