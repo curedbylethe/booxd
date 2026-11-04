@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"golang.org/x/net/html"
 )
@@ -62,7 +63,15 @@ func walk(n *html.Node, visit func(*html.Node)) {
 		walk(c, visit)
 	}
 }
-func collapse(s string) string { return strings.Join(strings.Fields(s), " ") }
+func collapse(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, s)
+	return strings.Join(strings.Fields(s), " ")
+}
 func nodeText(n *html.Node) string {
 	var b strings.Builder
 	walk(n, func(c *html.Node) {

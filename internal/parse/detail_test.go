@@ -90,3 +90,14 @@ func TestDetailPageNormalizesPlaceholders(t *testing.T) {
 		t.Fatalf("detail: %+v", detail)
 	}
 }
+
+func TestDetailPageStripsTerminalControls(t *testing.T) {
+	page := `<div id="book-panel-details"><table><tr><td>Title</td><td>Evil` + "\x1b" + `]0;pwned` + "\a\x1b" + `[2J</td></tr></table></div>`
+	detail, err := DetailPage(strings.NewReader(page))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Title != "Evil]0;pwned[2J" {
+		t.Fatalf("title retained terminal controls: %q", detail.Title)
+	}
+}
