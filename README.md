@@ -5,7 +5,7 @@ This repository is the skeleton for searching, inspecting, and fetching books.
 
 ## Status
 
-`search` fetches one results page and prints parsed book records. It supports
+`search` loads optional configuration from `config.toml`, fetches one results page and prints parsed book records. It supports
 `--page` and `--dump-html`. Parsing lives in `internal/parse` and never accesses
 the network. The other four commands remain stubs: they print "not implemented
 yet" and exit 1. Downloads and the TUI come later.
@@ -17,12 +17,13 @@ The client waits after a 429 and retries a 5xx twice. `--verbose` logs attempts.
 
 | Command | Output today |
 | -- | -- |
-| `booxd search [--mirror URL] [--page N] [--dump-html PATH] <query>` | `mirror: <url>` on stderr, then one tab-separated row per book on stdout; `no results` on stderr and exit 0 for a miss; exit 1 for fetch or parse failure |
+| `booxd search [--config PATH] [--mirror URL] [--page N] [--dump-html PATH] <query>` | `mirror: <url>` on stderr, then one tab-separated row per book on stdout; `no results` on stderr and exit 0 for a miss; exit 1 for fetch or parse failure |
 | `booxd get` | `booxd: get is not implemented yet` |
 | `booxd show` | `booxd: show is not implemented yet` |
 | `booxd tui` | `booxd: tui is not implemented yet` |
 | `booxd serve` | `booxd: serve is not implemented yet` |
 
+`booxd search --config PATH` reads `PATH` instead of the default config file.
 `booxd search --mirror URL` uses `URL` and skips discovery entirely. Put flags
 before query arguments; multiple words are joined with spaces. Page defaults to 1.
 `--dump-html PATH` writes the raw response body before parsing. A missing query or
@@ -30,10 +31,30 @@ page below 1 exits 2; `booxd search -h` shows search usage and exits 2.
 `booxd search --verbose` logs host, status, and wait for each attempt to stderr.
 It also reports waits before they begin.
 
+## Configuration
+
+The default file is `booxd/config.toml` under the platform config directory:
+`$XDG_CONFIG_HOME` or `$HOME/.config` on Termux, and `$HOME/Library/Application Support`
+on macOS. `--config` and `BOOXD_CONFIG` select another file. A missing default
+file uses defaults; a missing explicitly selected file is an error.
+
+Supported fields are `mirrors` (TOML string array; embedded seeds by default),
+`download_dir` (`$HOME/Downloads`), `cache_dir` (platform cache directory),
+`proxy` (empty), `user_agent` (`booxd/0.1`), `request_timeout` (`30s`), and
+`per_host_interval` (`1s`). Durations use Go duration strings. Proxy accepts
+`http`, `https`, and `socks5` URLs. Termux users may set `download_dir` to
+`$HOME/storage/downloads` after enabling shared storage.
+
+Environment overrides use `BOOXD_MIRRORS` (comma-separated),
+`BOOXD_DOWNLOAD_DIR`, `BOOXD_CACHE_DIR`, `BOOXD_PROXY`, `BOOXD_USER_AGENT`,
+`BOOXD_REQUEST_TIMEOUT`, and `BOOXD_PER_HOST_INTERVAL`. Precedence is flag,
+environment, file, then compiled default. A malformed value prints one line
+naming the config path and field.
+
 Discovery probes embedded seeds in order with a five-second timeout per seed. The
 first passing mirror is reused for 24 hours without probing. A 403, 404, or timeout
 puts that seed on cooldown for one hour. Selection and cooldowns persist in
-`booxd/mirror.json` under the platform user cache directory: `$XDG_CACHE_HOME` or
+`booxd/mirror.json` under `cache_dir`, defaulting to the platform user cache directory: `$XDG_CACHE_HOME` or
 `$HOME/.cache` on Termux, and `$HOME/Library/Caches` on macOS.
 
 ## Building
@@ -55,6 +76,7 @@ Ensure Go's binary installation directory is on `PATH`.
 
 Implemented packages:
 
+- `internal/config`: config path, defaults, TOML loading, and environment overrides.
 - `internal/mirror`: mirror seeds, probing, selected-mirror persistence, and cooldown.
 - `internal/fetch`: the shared HTTP client, per-host throttling, retry/backoff, and cache lookup. A cookie jar remains planned.
 - `internal/parse`: search HTML into records, without network access.
