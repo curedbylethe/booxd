@@ -31,12 +31,14 @@ func TestResolve(t *testing.T) {
 		retry    bool
 	}{
 		{name: "fresh reuse", statuses: []int{200}, age: 23 * time.Hour, calls: []int32{0}},
+		{name: "future checked_at is stale", statuses: []int{200}, age: -time.Hour, calls: []int32{1}},
 		{name: "24-hour boundary", statuses: []int{200}, age: 24 * time.Hour, calls: []int32{1}},
 		{name: "stale", statuses: []int{200}, age: 25 * time.Hour, calls: []int32{1}},
 		{name: "first pass and dead mark", statuses: []int{403, 200}, selected: 1, calls: []int32{1, 1}},
 		{name: "404 also dead", statuses: []int{404, 200}, selected: 1, calls: []int32{1, 1}},
 		{name: "skip dead", statuses: []int{200, 200}, dead: []time.Duration{30 * time.Minute}, selected: 1, calls: []int32{0, 1}},
 		{name: "dead expired", statuses: []int{200}, dead: []time.Duration{-time.Minute}, calls: []int32{1}},
+		{name: "dead deadline beyond cooldown", statuses: []int{200}, dead: []time.Duration{24 * time.Hour}, calls: []int32{1}},
 		{name: "cooldown boundary", statuses: []int{200}, dead: []time.Duration{0}, calls: []int32{1}},
 		{name: "429 is not dead", statuses: []int{429, 200}, selected: 1, calls: []int32{1, 1}},
 		{name: "all fail", statuses: []int{403, 500}, age: 25 * time.Hour, selected: -1, calls: []int32{1, 1}, failure: "tried"},
@@ -204,17 +206,30 @@ func TestResolveCancelledPassingResponse(t *testing.T) {
 	}
 }
 
-func TestResolveSaveError(t *testing.T) {
-	for _, status := range []int{200, 500} {
-		t.Run(http.StatusText(status), func(t *testing.T) {
+func TestResolveIgnoresSaveError(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		status int
+		base   bool
+	}{
+		{name: "pass", status: 200, base: true},
+		{name: "fail", status: 500},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(status)
+				w.WriteHeader(tt.status)
 				_, _ = w.Write([]byte(passMarker))
 			}))
 			t.Cleanup(server.Close)
 			got, err := Resolve(context.Background(), fetch.New(), t.TempDir(), []string{server.URL}, time.Time{})
-			if got != "" || err == nil || !strings.Contains(err.Error(), "save mirror state") {
-				t.Fatalf("Resolve = %q, %v; want save error", got, err)
+			if tt.base {
+				if err != nil || got != server.URL {
+					t.Fatalf("Resolve = %q, %v; want %q", got, err, server.URL)
+				}
+				return
+			}
+			if got != "" || err == nil || !strings.Contains(err.Error(), "no working mirror: ") {
+				t.Fatalf("Resolve = %q, %v; want the discovery error", got, err)
 			}
 		})
 	}
