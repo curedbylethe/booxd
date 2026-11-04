@@ -370,7 +370,7 @@ func TestGetOpen(t *testing.T) {
 				wantCode = 1
 				message := tc.failure.Error()
 				if errors.Is(tc.failure, exec.ErrNotFound) {
-					message = "termux-open not found; install termux-tools and open it from Termux"
+					message = "termux-open not found; install termux-tools"
 				}
 				wantError := fmt.Sprintf("booxd: cannot open %s: %s\n", path, message)
 				if !strings.HasSuffix(stderr.String(), wantError) {
