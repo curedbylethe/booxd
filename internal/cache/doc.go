@@ -1,3 +1,2 @@
-// Package cache owns the disk query cache: keys, timestamps, TTL, atomic writes, and sweep.
-// It must not import network code.
+// Package cache stores search results on disk without network access.
 package cache
