@@ -1,7 +1,6 @@
 # Termux on the Boox
 
-Run booxd in the foreground on Android 11. Device verification is still pending:
-the build alone does not prove DNS or the Android reader handoff works.
+Run booxd in the foreground on Android 11.
 
 ## Install Termux from F-Droid
 
@@ -89,7 +88,7 @@ socket listener, or scheduled job.
 
 ## Verify
 
-Run these on the Boox; this check remains pending until tested on real hardware:
+Run these on the Boox:
 
 ```sh
 command -v booxd
