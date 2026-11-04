@@ -7,11 +7,12 @@ This repository is the skeleton for searching, inspecting, and fetching books.
 
 `search` loads optional configuration from `config.toml`, fetches one results
 page, and prints parsed book records. `show` fetches a book page and prints its
-metadata and download options. Search supports `--page`, `--dump-html`, and a
+metadata and download options. `tui` opens an interactive search screen with a
+result list and local detail pane. Search supports `--page`, `--dump-html`, and a
 disk cache with a 24-hour TTL. Cached output prints
 `cached <age> ago` on stderr. Parsing lives in `internal/parse` and never accesses
-the network. The other three commands remain stubs: they print "not implemented
-yet" and exit 1. Downloads and the TUI come later.
+the network. `get` and `serve` remain stubs: they print "not implemented yet"
+and exit 1. Downloads come later.
 No arguments prints usage and exits 2; an unknown command also exits 2.
 Requests to a host run one at a time, with at least one second between starts.
 The client waits after a 429 and retries a 5xx twice. `--verbose` logs attempts.
@@ -23,7 +24,7 @@ The client waits after a 429 and retries a 5xx twice. `--verbose` logs attempts.
 | `booxd search [--config PATH] [--mirror URL] [--page N] [--dump-html PATH] [--no-cache] [--max-age DURATION] <query>` | `mirror: <url>` on stderr when using network; one tab-separated row per book on stdout; cached rows print `cached <age> ago` on stderr; `no results` on stderr and exit 0 for a miss; exit 1 for fetch or parse failure |
 | `booxd get` | `booxd: get is not implemented yet` |
 | `booxd show [--config PATH] [--mirror URL] [--verbose] <id>` | nine labeled metadata lines and download options; all-gated pages print `downloads require a signed-in session`; exit 1 for config, resolve, fetch, status, or parse failure; exit 2 for usage errors |
-| `booxd tui` | `booxd: tui is not implemented yet` |
+| `booxd tui` | Interactive search line, result table, local detail pane, and status line; Enter searches or opens details, `j`/`k` or arrows move, `/` edits query, Esc goes back, `?` shows help, and `q` quits outside query entry |
 | `booxd serve` | `booxd: serve is not implemented yet` |
 
 `booxd search --config PATH` reads `PATH` instead of the default config file.
@@ -105,11 +106,12 @@ Implemented packages:
 - `internal/cache`: disk query cache with normalized keys, atomic JSON writes, TTL reads, and expiry sweep.
 - `internal/parse`: search and detail HTML into book metadata and download
   options, without network access.
+- `internal/tui`: tcell input, local book navigation, and deliberate full-frame
+  redraws; search runs through an injected function.
 
 Package skeletons and their planned responsibilities:
 
 - `internal/down`: gated downloads, `.part` resume, size checks, and atomic renames using fetch.
-- `internal/tui`: the tcell screen, input, and redraw using parse, cache, and mirror results.
 
 ## Documentation
 
