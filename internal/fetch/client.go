@@ -155,10 +155,15 @@ func (c *Client) Get(ctx context.Context, rawURL string) (*Response, error) {
 		if result.StatusCode == http.StatusTooManyRequests {
 			last429 = result
 			st.streak++
+			wait := retryWait(result.Header, st.streak, c.clock.Now())
+			// Preserve the server's deadline even when this call ends before retrying.
+			deadline := c.clock.Now().Add(wait)
+			if deadline.After(st.next) {
+				st.next = deadline
+			}
 			if attempt == maxAttempts {
 				return result, nil
 			}
-			wait := retryWait(result.Header, st.streak, c.clock.Now())
 			if err := c.clock.Wait(ctx, wait); err != nil {
 				return result, nil
 			}
