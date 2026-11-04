@@ -80,7 +80,8 @@ func WithProxy(proxy *url.URL) Option {
 	}
 }
 
-// WithTimeout sets the request timeout. Zero disables the timeout; negative keeps the default.
+// WithTimeout sets the request timeout. Zero disables the whole-request timeout
+// but still limits response-header waits to DefaultTimeout; negative keeps the default.
 func WithTimeout(timeout time.Duration) Option {
 	return func(c *Client) {
 		if timeout == 0 {
