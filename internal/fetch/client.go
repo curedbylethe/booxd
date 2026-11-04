@@ -143,7 +143,9 @@ func New(opts ...Option) *Client {
 		},
 	}}
 	if runtime.GOOS == "android" {
-		c.http.Transport = androidTransport()
+		if transport := androidTransport(); transport != nil {
+			c.http.Transport = transport
+		}
 	}
 	for _, opt := range opts {
 		opt(c)

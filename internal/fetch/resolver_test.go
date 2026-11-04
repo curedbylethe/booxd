@@ -93,3 +93,22 @@ func TestAndroidTransportOptionsPreserveDialer(t *testing.T) {
 		t.Fatalf("proxy=%v error=%v", configured, err)
 	}
 }
+
+type resolverTransportDouble struct{}
+
+func (*resolverTransportDouble) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, nil
+}
+
+func TestAndroidTransportKeepsDefaultDouble(t *testing.T) {
+	original := http.DefaultTransport
+	double := &resolverTransportDouble{}
+	http.DefaultTransport = double
+	t.Cleanup(func() { http.DefaultTransport = original })
+	if got := androidTransport(); got != nil {
+		t.Fatalf("transport=%v, want nil", got)
+	}
+	if got := New().http.Transport; got != double {
+		t.Fatalf("transport=%T, want original double", got)
+	}
+}
