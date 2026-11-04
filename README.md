@@ -141,6 +141,7 @@ Implemented packages:
 ## Documentation
 
 - [docs/eink.md](docs/eink.md): the e-ink redraw policy and the reason for each rule.
+- [docs/termux.md](docs/termux.md): installing booxd in Termux on the Boox, and why there is no daemon.
 
 See [AGENTS.md](AGENTS.md) for repository constraints and
 [project conventions](https://linear.app/curedbylethe/document/booxd-project-conventions-bf3f21ac3632)
