@@ -46,22 +46,28 @@ func TestRunShow(t *testing.T) {
 		wantOut, wantErr, wantURL    string
 		wantCode, wantClients, calls int
 		seedAge                      time.Duration
+		seedFuture                   bool
 		seedBody                     []byte
 		seedStatus                   int
+		wantNoEntry                  bool
+		wantStoredBody               []byte
+		wantLookups                  int
 		verbose                      bool
 	}{
 		{name: "no id", args: []string{"show"}, wantCode: 2, wantErr: usage},
 		{name: "two ids", args: []string{"show", "1", "2"}, wantCode: 2, wantErr: usage},
 		{name: "invalid id", args: []string{"show", "../etc"}, wantCode: 2, wantErr: `booxd: invalid book id "../etc"` + "\n"},
 		{name: "help", args: []string{"show", "-h"}, wantCode: 2, wantErr: usage},
-		{name: "full fixture", args: []string{"show", "36451"}, body: full, status: 200, wantCode: 0, wantOut: fullOutput, wantErr: "mirror: https://mirror.test\n", wantURL: "https://mirror.test/books/36451", wantClients: 1, calls: 1},
+		{name: "full fixture", args: []string{"show", "36451"}, body: full, status: 200, wantCode: 0, wantOut: fullOutput, wantErr: "mirror: https://mirror.test\n", wantURL: "https://mirror.test/books/36451", wantClients: 1, calls: 1, wantLookups: 1},
 		{name: "slug id", args: []string{"show", "36451-36451-test"}, body: full, status: 200, wantCode: 0, wantOut: fullOutput, wantErr: "mirror: https://mirror.test\n", wantURL: "https://mirror.test/books/36451-36451-test", wantClients: 1, calls: 1},
 		{name: "rich fixture", args: []string{"show", "30208739"}, body: rich, status: 200, wantCode: 0, wantOut: richOutput, wantErr: "mirror: https://mirror.test\n", wantURL: "https://mirror.test/books/30208739", wantClients: 1, calls: 1},
-		{name: "404", args: []string{"show", "36451"}, status: 404, wantCode: 1, wantErr: "mirror: https://mirror.test\nbooxd: show: status 404\n", wantURL: "https://mirror.test/books/36451", wantClients: 1, calls: 1},
+		{name: "404", args: []string{"show", "36451"}, status: 404, wantCode: 1, wantErr: "mirror: https://mirror.test\nbooxd: show: status 404\n", wantURL: "https://mirror.test/books/36451", wantClients: 1, calls: 1, wantLookups: 1, wantNoEntry: true},
 		{name: "resolver error", args: []string{"show", "36451"}, resolveErr: errors.New("no working mirror: x"), wantCode: 1, wantErr: "booxd: no working mirror: x\n", wantClients: 1, calls: 1},
-		{name: "parse error", args: []string{"show", "36451"}, body: search, status: 200, wantCode: 1, wantErr: "mirror: https://mirror.test\nbooxd: parse detail: no detail table\n", wantURL: "https://mirror.test/books/36451", wantClients: 1, calls: 1},
+		{name: "parse error", args: []string{"show", "36451"}, body: search, status: 200, wantCode: 1, wantErr: "mirror: https://mirror.test\nbooxd: parse detail: no detail table\n", wantURL: "https://mirror.test/books/36451", wantClients: 1, calls: 1, wantLookups: 1, wantNoEntry: true},
 		{name: "fresh cache", args: []string{"show", "36451"}, wantCode: 0, wantOut: fullOutput, seedBody: full, seedStatus: 200},
-		{name: "stale cache", args: []string{"show", "36451"}, body: full, status: 200, wantCode: 0, wantOut: fullOutput, wantErr: "mirror: https://mirror.test\n", wantURL: "https://mirror.test/books/36451", wantClients: 1, calls: 1, seedAge: 25 * time.Hour, seedBody: full, seedStatus: 200},
+		{name: "stale cache", args: []string{"show", "36451"}, body: full, status: 200, wantCode: 0, wantOut: fullOutput, wantErr: "mirror: https://mirror.test\n", wantURL: "https://mirror.test/books/36451", wantClients: 1, calls: 1, seedAge: 25 * time.Hour, seedBody: full, seedStatus: 200, wantLookups: 1},
+		{name: "unparseable cache", args: []string{"show", "36451"}, body: full, status: 200, wantCode: 0, wantOut: fullOutput, wantErr: "mirror: https://mirror.test\n", wantURL: "https://mirror.test/books/36451", wantClients: 1, calls: 1, seedAge: time.Hour, seedBody: []byte("not a book page"), seedStatus: 200, wantLookups: 1, wantStoredBody: full},
+		{name: "future cache", args: []string{"show", "36451"}, body: full, status: 200, wantCode: 0, wantOut: fullOutput, wantErr: "mirror: https://mirror.test\n", wantURL: "https://mirror.test/books/36451", wantClients: 1, calls: 1, seedFuture: true, seedBody: full, seedStatus: 200, wantLookups: 1},
 		{name: "mixed downloads", args: []string{"show", "1"}, body: []byte(mixed), status: 200, wantCode: 0, wantOut: "title: Test\nauthor: -\npublisher: -\nyear: -\nlanguage: -\nformat: -\nsize: -\nisbn: -\npages: -\ndownloads:\n  - Fast Partner Server #1 (requires signed-in session)\n  - Slow Partner Server #1\n", wantErr: "mirror: https://mirror.test\n", wantURL: "https://mirror.test/books/1", wantClients: 1, calls: 1},
 		{name: "missing fields", args: []string{"show", "1"}, body: []byte(missing), status: 200, wantCode: 0, wantOut: missingOutput, wantErr: "mirror: https://mirror.test\n", wantURL: "https://mirror.test/books/1", wantClients: 1, calls: 1},
 		{name: "verbose", args: []string{"show", "--verbose", "1"}, body: []byte(missing), status: 200, wantCode: 0, wantOut: missingOutput, wantErr: "mirror: https://mirror.test\n", wantURL: "https://mirror.test/books/1", wantClients: 1, calls: 1, verbose: true},
@@ -76,12 +82,16 @@ func TestRunShow(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if err := cache.Open(dir).Put(cache.Entry{Query: "book:36451", Page: 0, Status: tt.seedStatus, FetchedAt: time.Now().Add(-tt.seedAge), Body: tt.seedBody}); err != nil {
+				fetchedAt := time.Now().Add(-tt.seedAge)
+				if tt.seedFuture {
+					fetchedAt = time.Now().Add(time.Hour)
+				}
+				if err := cache.Open(dir).Put(cache.Entry{Query: "book:36451", Page: 0, Status: tt.seedStatus, FetchedAt: fetchedAt, Body: tt.seedBody}); err != nil {
 					t.Fatal(err)
 				}
 			}
 			var stdout, stderr bytes.Buffer
-			clients, calls := 0, 0
+			clients, calls, lookups := 0, 0, 0
 			var gotURL string
 			newClient := func(_ config.Config, writer io.Writer) *fetch.Client {
 				clients++
@@ -89,6 +99,7 @@ func TestRunShow(t *testing.T) {
 					t.Errorf("verbose writer = %v", writer)
 				}
 				return fetch.New(fetch.WithLookup(func(_ context.Context, rawURL string) (int, []byte, bool) {
+					lookups++
 					gotURL = rawURL
 					return tt.status, tt.body, true
 				}))
@@ -112,6 +123,25 @@ func TestRunShow(t *testing.T) {
 			}
 			if clients != tt.wantClients || calls != tt.calls || gotURL != tt.wantURL {
 				t.Fatalf("clients=%d calls=%d URL=%q; want %d %d %q", clients, calls, gotURL, tt.wantClients, tt.calls, tt.wantURL)
+			}
+			if tt.wantLookups > 0 && lookups != tt.wantLookups {
+				t.Fatalf("lookups=%d, want %d", lookups, tt.wantLookups)
+			}
+			if tt.name == "fresh cache" && lookups != 0 {
+				t.Fatalf("fresh cache made %d lookups", lookups)
+			}
+			if tt.wantNoEntry || tt.wantStoredBody != nil {
+				dir, err := cache.Path(os.Getenv("BOOXD_CACHE_DIR"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				entry, ok := cache.Open(dir).Get("book:36451", 0)
+				if tt.wantNoEntry && ok {
+					t.Fatal("unexpected cache entry")
+				}
+				if tt.wantStoredBody != nil && (!ok || !bytes.Equal(entry.Body, tt.wantStoredBody)) {
+					t.Fatal("unparseable cache entry was not replaced")
+				}
 			}
 			if tt.name == "fresh cache" {
 				dir, _ := cache.Path(os.Getenv("BOOXD_CACHE_DIR"))
