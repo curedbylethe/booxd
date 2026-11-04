@@ -16,13 +16,15 @@ func Resolve(ctx context.Context, c *fetch.Client, statePath string, seeds []str
 		return "", err
 	}
 	st := loadState(statePath)
-	if st.BaseURL != "" && now.Sub(st.CheckedAt) < stateTTL {
+	// A timestamp in the future means the clock moved backwards; treat it as stale.
+	age := now.Sub(st.CheckedAt)
+	if st.BaseURL != "" && age >= 0 && age < stateTTL {
 		return st.BaseURL, nil
 	}
 	var tried []string
 	for _, seed := range seeds {
 		base := strings.TrimRight(seed, "/")
-		if st.DeadUntil[base].After(now) {
+		if until := st.DeadUntil[base]; until.After(now) && until.Sub(now) <= cooldown {
 			continue
 		}
 		result := probe(ctx, c, base, probeTimeout)
@@ -32,9 +34,8 @@ func Resolve(ctx context.Context, c *fetch.Client, statePath string, seeds []str
 		switch result {
 		case pass:
 			st.BaseURL, st.CheckedAt = base, now
-			if err := saveState(statePath, st); err != nil {
-				return "", fmt.Errorf("save mirror state: %w", err)
-			}
+			// The cache is an optimization; a failed write must not fail the command.
+			_ = saveState(statePath, st)
 			return base, nil
 		case dead:
 			st.DeadUntil[base] = now.Add(cooldown)
@@ -47,9 +48,7 @@ func Resolve(ctx context.Context, c *fetch.Client, statePath string, seeds []str
 		return "", err
 	}
 	st.BaseURL, st.CheckedAt = "", time.Time{}
-	if err := saveState(statePath, st); err != nil {
-		return "", fmt.Errorf("save mirror state: %w", err)
-	}
+	_ = saveState(statePath, st)
 	if len(tried) == 0 {
 		return "", errors.New("no working mirror: every seed is cooling down after a recent failure")
 	}
