@@ -1,6 +1,7 @@
 package parse
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"strings"
@@ -16,7 +17,7 @@ func fixture(t *testing.T, name string) []byte {
 	return b
 }
 func TestSearchHitPage(t *testing.T) {
-	books, err := Search(strings.NewReader(string(fixture(t, "search-hit.html"))))
+	books, err := Search(bytes.NewReader(fixture(t, "search-hit.html")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,15 +70,27 @@ func TestSearchMinimalCard(t *testing.T) {
 	}
 }
 
+func TestSearchMetadataWithoutAuthor(t *testing.T) {
+	page := `<div class="bg-white rounded-lg shadow p-4 mb-4"><h3>One</h3><div class="text-sm text-[#666] mt-1">2022 · PDF · 51.0 MB · Books catalog</div></div>` +
+		`<div class="bg-white rounded-lg shadow p-4 mb-4"><h3>Two</h3><div class="text-sm text-[#666] mt-1">Unknown · 2020 · Books catalog</div></div>`
+	books, err := Search(strings.NewReader(page))
+	if err != nil || len(books) != 2 {
+		t.Fatalf("books: %+v, error: %v", books, err)
+	}
+	if books[0].Author != "" || books[0].Year != "2022" || books[0].Format != "PDF" || books[0].Size != "51.0 MB" || books[1].Author != "" || books[1].Year != "2020" {
+		t.Fatalf("books: %+v", books)
+	}
+}
+
 func TestSearchMissPage(t *testing.T) {
-	books, err := Search(strings.NewReader(string(fixture(t, "search-miss.html"))))
+	books, err := Search(bytes.NewReader(fixture(t, "search-miss.html")))
 	if err != nil || len(books) != 0 {
 		t.Fatalf("books: %+v, error: %v", books, err)
 	}
 }
 
 func TestSearchNonLatinPage(t *testing.T) {
-	books, err := Search(strings.NewReader(string(fixture(t, "search-nonlatin.html"))))
+	books, err := Search(bytes.NewReader(fixture(t, "search-nonlatin.html")))
 	if err != nil || len(books) != 9 {
 		t.Fatalf("got %d books, error: %v", len(books), err)
 	}
@@ -100,7 +113,7 @@ func TestSearchNonLatinPage(t *testing.T) {
 }
 
 func TestSearchPage2(t *testing.T) {
-	books, err := Search(strings.NewReader(string(fixture(t, "search-page2.html"))))
+	books, err := Search(bytes.NewReader(fixture(t, "search-page2.html")))
 	if err != nil || len(books) != 20 {
 		t.Fatalf("got %d books, error: %v", len(books), err)
 	}

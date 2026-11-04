@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -83,14 +84,7 @@ func attr(n *html.Node, key string) string {
 func hasClasses(n *html.Node, classes []string) bool {
 	fields := strings.Fields(attr(n, "class"))
 	for _, wanted := range classes {
-		found := false
-		for _, field := range fields {
-			if field == wanted {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if !slices.Contains(fields, wanted) {
 			return false
 		}
 	}
