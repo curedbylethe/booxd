@@ -36,3 +36,9 @@ go.work
 .projectmem/watch.pid
 .projectmem/watch.log
 .projectmem/structure.json
+
+# Local files and build output
+/booxd
+dist/
+.DS_Store
+.opencode/
