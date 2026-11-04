@@ -279,6 +279,114 @@ func TestFrameCount(t *testing.T) {
 	}
 }
 
+func TestInFlightStatus(t *testing.T) {
+	screen := newCountingScreen(t, 80, 24)
+	screen.scriptEvents = []tcell.Event{
+		tcell.NewEventKey(tcell.KeyRune, 'x', tcell.ModNone),
+		tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone),
+		tcell.NewEventKey(tcell.KeyRune, '/', tcell.ModNone),
+		tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone),
+		tcell.NewEventKey(tcell.KeyCtrlC, 0, tcell.ModNone),
+	}
+	calls := 0
+	var status, previousRow string
+	search := func(context.Context, string) ([]parse.Book, error) {
+		calls++
+		if calls == 1 {
+			return []parse.Book{{ID: "old", Title: "Previous result"}}, nil
+		}
+		lines, _, _, _ := simLines(screen)
+		status = strings.TrimRight(lines[23], " ")
+		previousRow = strings.TrimRight(lines[2], " ")
+		return nil, nil
+	}
+	if err := runScreen(context.Background(), screen, search); err != nil {
+		t.Fatal(err)
+	}
+	if screen.postErr != nil {
+		t.Fatalf("script event: %v", screen.postErr)
+	}
+	if calls != 2 {
+		t.Fatalf("search calls=%d, want 2", calls)
+	}
+	if status != "…" {
+		t.Fatalf("in-flight status=%q, want %q", status, "…")
+	}
+	if previousRow != "Previous result" {
+		t.Fatalf("in-flight result row=%q, want previous result", previousRow)
+	}
+}
+
+func TestCursorHidden(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		moveLeft bool
+		wantX    int
+		wantRune rune
+	}{
+		{name: "inside input", moveLeft: true, wantX: len("search: ") + 2, wantRune: 'c'},
+		{name: "at end of input", wantX: len("search: ") + 3, wantRune: ' '},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			screen := newCountingScreen(t, 80, 24)
+			screen.scriptEvents = []tcell.Event{
+				tcell.NewEventKey(tcell.KeyRune, 'a', tcell.ModNone),
+				tcell.NewEventKey(tcell.KeyRune, 'b', tcell.ModNone),
+				tcell.NewEventKey(tcell.KeyRune, 'c', tcell.ModNone),
+			}
+			if tt.moveLeft {
+				screen.scriptEvents = append(screen.scriptEvents, tcell.NewEventKey(tcell.KeyLeft, 0, tcell.ModNone))
+			}
+			screen.scriptEvents = append(screen.scriptEvents, tcell.NewEventKey(tcell.KeyCtrlC, 0, tcell.ModNone))
+			if err := runScreen(context.Background(), screen, func(context.Context, string) ([]parse.Book, error) { return nil, nil }); err != nil {
+				t.Fatal(err)
+			}
+			if screen.postErr != nil {
+				t.Fatalf("script event: %v", screen.postErr)
+			}
+			if screen.hides != 1 || screen.showCursor != 0 {
+				t.Fatalf("HideCursor calls=%d ShowCursor calls=%d, want 1 and 0", screen.hides, screen.showCursor)
+			}
+			cells, width, _ := screen.GetContents()
+			cell := cells[tt.wantX]
+			if len(cell.Runes) == 0 || cell.Runes[0] != tt.wantRune {
+				t.Fatalf("caret cell=%q, want %q", string(cell.Runes), tt.wantRune)
+			}
+			if cell.Style != newTheme(false).reverse {
+				t.Fatalf("caret style=%v, want reverse %v", cell.Style, newTheme(false).reverse)
+			}
+			_, _, visible := screen.GetCursor()
+			if visible {
+				t.Fatal("terminal cursor is visible")
+			}
+			if width != 80 {
+				t.Fatalf("screen width=%d, want 80", width)
+			}
+		})
+	}
+}
+
+func TestEveryCellUsesAThemeStyle(t *testing.T) {
+	screen := newSimulation(t, 80, 24)
+	theme := newTheme(false)
+	m := model{
+		view:      stateResults,
+		books:     booksForTest(3),
+		selected:  1,
+		status:    "offline",
+		statusErr: true,
+		height:    24,
+		theme:     theme,
+	}
+	draw(screen, m)
+	cells, _, _ := screen.GetContents()
+	for i, cell := range cells {
+		if cell.Style != theme.base && cell.Style != theme.dim && cell.Style != theme.reverse && cell.Style != theme.alert {
+			t.Fatalf("cell %d uses unapproved style %v", i, cell.Style)
+		}
+	}
+}
+
 type countingScreen struct {
 	tcell.SimulationScreen
 	shows, hides, showCursor int
