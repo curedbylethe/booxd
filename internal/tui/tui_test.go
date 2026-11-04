@@ -366,25 +366,30 @@ func TestCursorHidden(t *testing.T) {
 	}
 }
 
-func TestEveryCellUsesAThemeStyle(t *testing.T) {
+func TestRunUsesMonoOption(t *testing.T) {
 	screen := newSimulation(t, 80, 24)
-	theme := newTheme(false)
-	m := model{
-		view:      stateResults,
-		books:     booksForTest(3),
-		selected:  1,
-		status:    "offline",
-		statusErr: true,
-		height:    24,
-		theme:     theme,
+	screen.InjectKey(tcell.KeyRune, 'x', tcell.ModNone)
+	screen.InjectKey(tcell.KeyEnter, 0, tcell.ModNone)
+	screen.InjectKey(tcell.KeyCtrlC, 0, tcell.ModNone)
+	search := func(context.Context, string) ([]parse.Book, error) {
+		return nil, errors.New("offline")
 	}
-	draw(screen, m)
-	cells, _, _ := screen.GetContents()
-	for i, cell := range cells {
-		if cell.Style != theme.base && cell.Style != theme.dim && cell.Style != theme.reverse && cell.Style != theme.alert {
-			t.Fatalf("cell %d uses unapproved style %v", i, cell.Style)
-		}
+	if err := Run(context.Background(), Options{Search: search, Screen: screen, Mono: true}); err != nil {
+		t.Fatal(err)
 	}
+	_, height := screen.Size()
+	cells, width, _ := screen.GetContents()
+	status := cells[(height-1)*width]
+	if want := newTheme(true).alert; status.Style != want {
+		t.Fatalf("mono status style=%v, want %v", status.Style, want)
+	}
+	if status.Style != strip(status.Style) {
+		t.Fatal("Run with Mono=true rendered a colored status")
+	}
+}
+
+func runScreen(ctx context.Context, screen tcell.Screen, search SearchFunc) error {
+	return runScreenWithTheme(ctx, screen, search, false)
 }
 
 type countingScreen struct {

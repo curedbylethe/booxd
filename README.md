@@ -28,6 +28,7 @@ The client waits after a 429 and retries a 5xx twice. `--verbose` logs attempts.
 | `booxd serve` | `booxd: serve is not implemented yet` |
 
 `booxd search --config PATH` reads `PATH` instead of the default config file.
+The TUI's `--mono` flag disables colour; any non-empty `NO_COLOR` value does the same.
 `booxd search --mirror URL` uses `URL` and skips discovery entirely. Put flags
 before query arguments; multiple words are joined with spaces. Page defaults to 1.
 `--dump-html PATH` writes the raw response body before parsing, or the cached body

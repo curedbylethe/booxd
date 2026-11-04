@@ -55,6 +55,7 @@ func handleKey(m model, ev *tcell.EventKey) (model, action) {
 			m.query = string(m.input)
 			if m.query == "" {
 				m.status = "type a query"
+				m.statusErr = false
 				return m, action{dirty: true}
 			}
 			m.view = stateResults
