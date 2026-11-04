@@ -3,12 +3,14 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -305,4 +307,79 @@ func writeCookieFileForDomain(t *testing.T, domain string) string {
 func hasSession(r *http.Request) bool {
 	cookie, err := r.Cookie("sid")
 	return err == nil && cookie.Value == "dummy"
+}
+
+func TestGetOpen(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		requested, exists bool
+		failure           error
+	}{
+		{"calls termux-open", true, false, nil},
+		{"missing command", true, false, &exec.Error{Name: "termux-open", Err: exec.ErrNotFound}},
+		{"not requested", false, false, nil},
+		{"already downloaded", true, true, nil},
+		{"run failure", true, false, errors.New("exit status 1")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			withGetEnvironment(t, dir)
+			path := filepath.Join(dir, "book.epub")
+			if tc.exists {
+				if err := os.WriteFile(path, []byte("book"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			srv := newGetServer(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/books/42" {
+					_, _ = io.WriteString(w, openBookPage(`<a href="/download/file">Download</a>`))
+					return
+				}
+				w.Header().Set("Content-Disposition", `attachment; filename="book.epub"`)
+				_, _ = io.WriteString(w, "book")
+			})
+			old := openFile
+			t.Cleanup(func() { openFile = old })
+			calls := 0
+			openFile = func(got string) error {
+				calls++
+				if got != path {
+					t.Fatalf("path=%q want=%q", got, path)
+				}
+				if body, err := os.ReadFile(got); err != nil || string(body) != "book" {
+					t.Fatalf("finished file=%q err=%v", body, err)
+				}
+				return tc.failure
+			}
+			args := []string{"get", "--cookies", writeCookieFile(t, srv.URL)}
+			if tc.requested {
+				args = append(args, "--open")
+			}
+			args = append(args, "42")
+			var stdout, stderr bytes.Buffer
+			code := runGetOnServer(t, srv, args, &stdout, &stderr)
+			wantCode, wantCalls := 0, 0
+			if tc.requested {
+				wantCalls = 1
+			}
+			wantOut := fmt.Sprintf("saved %s\n", path)
+			if tc.exists {
+				wantOut = fmt.Sprintf("already downloaded: %s\n", path)
+			}
+			if tc.failure != nil {
+				wantCode = 1
+				message := tc.failure.Error()
+				if errors.Is(tc.failure, exec.ErrNotFound) {
+					message = "termux-open not found; install termux-tools and open it from Termux"
+				}
+				wantError := fmt.Sprintf("booxd: cannot open %s: %s\n", path, message)
+				if !strings.HasSuffix(stderr.String(), wantError) {
+					t.Fatalf("stderr=%q want suffix=%q", stderr.String(), wantError)
+				}
+			}
+			if code != wantCode || calls != wantCalls || stdout.String() != wantOut {
+				t.Fatalf("code=%d calls=%d stdout=%q stderr=%q", code, calls, stdout.String(), stderr.String())
+			}
+		})
+	}
 }

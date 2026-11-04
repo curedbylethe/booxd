@@ -9,11 +9,16 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os/exec"
 	"strings"
 
 	"github.com/curedbylethe/booxd/internal/down"
 	"github.com/curedbylethe/booxd/internal/parse"
 )
+
+var openFile = func(path string) error {
+	return exec.Command("termux-open", path).Run()
+}
 
 func runGet(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient clientFunc) int {
 	flags := flag.NewFlagSet("get", flag.ContinueOnError)
@@ -25,6 +30,7 @@ func runGet(args []string, stdout, stderr io.Writer, resolve resolveFunc, newCli
 	configPath := flags.String("config", "", "config file path")
 	cookiesPath := flags.String("cookies", "", "Netscape cookie file; required for a download")
 	override := flags.String("mirror", "", "base URL; skip mirror discovery")
+	open := flags.Bool("open", false, "open the saved file with termux-open")
 	verbose := flags.Bool("verbose", false, "log each fetch attempt to stderr")
 	if err := flags.Parse(args); err != nil {
 		return 2
@@ -122,13 +128,22 @@ func runGet(args []string, stdout, stderr io.Writer, resolve resolveFunc, newCli
 	})
 	if errors.Is(err, down.ErrExists) {
 		_, _ = fmt.Fprintf(stdout, "already downloaded: %s\n", path)
-		return 0
-	}
-	if err != nil {
+	} else if err != nil {
 		_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
 		return 1
+	} else {
+		_, _ = fmt.Fprintf(stdout, "saved %s\n", path)
 	}
-	_, _ = fmt.Fprintf(stdout, "saved %s\n", path)
+	if *open {
+		if err := openFile(path); err != nil {
+			if errors.Is(err, exec.ErrNotFound) {
+				_, _ = fmt.Fprintf(stderr, "booxd: cannot open %s: termux-open not found; install termux-tools and open it from Termux\n", path)
+			} else {
+				_, _ = fmt.Fprintf(stderr, "booxd: cannot open %s: %v\n", path, err)
+			}
+			return 1
+		}
+	}
 	return 0
 }
 
