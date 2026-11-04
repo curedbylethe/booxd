@@ -3,7 +3,9 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -11,12 +13,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-)
-
-const (
-	defaultUserAgent = "booxd/0.1"
-	defaultTimeout   = 30 * time.Second
-	defaultInterval  = time.Second
+	"github.com/curedbylethe/booxd/internal/fetch"
 )
 
 // Config contains the runtime settings read by booxd.
@@ -32,7 +29,7 @@ type Config struct {
 
 // Defaults returns compiled-in settings. Mirror seeds are supplied by the caller.
 func Defaults() Config {
-	c := Config{UserAgent: defaultUserAgent, RequestTimeout: defaultTimeout, PerHostInterval: defaultInterval}
+	c := Config{UserAgent: fetch.DefaultUserAgent, RequestTimeout: fetch.DefaultTimeout, PerHostInterval: fetch.DefaultInterval}
 	if home, err := os.UserHomeDir(); err == nil {
 		c.DownloadDir = filepath.Join(home, "Downloads")
 	}
@@ -70,6 +67,10 @@ func Load(path string, explicit bool, base Config) (Config, error) {
 			if os.IsNotExist(err) && !explicit {
 				return applyEnvironment(c)
 			}
+			var pathErr *fs.PathError
+			if errors.As(err, &pathErr) {
+				err = pathErr.Err
+			}
 			return c, fmt.Errorf("%s: %s", path, oneLine(err.Error()))
 		}
 		var file fileConfig
@@ -90,7 +91,7 @@ func Load(path string, explicit bool, base Config) (Config, error) {
 }
 
 func applyFile(c Config, f fileConfig) (Config, error) {
-	if f.Mirrors != nil {
+	if f.Mirrors != nil && len(*f.Mirrors) > 0 {
 		v, err := validateMirrors(*f.Mirrors, "mirrors")
 		if err != nil {
 			return c, err
@@ -110,7 +111,7 @@ func applyFile(c Config, f fileConfig) (Config, error) {
 		c.CacheDir = *f.CacheDir
 	}
 	if f.Proxy != nil {
-		v, err := parseProxy(*f.Proxy)
+		v, err := parseProxy(*f.Proxy, "proxy")
 		if err != nil {
 			return c, err
 		}
@@ -140,21 +141,19 @@ func applyFile(c Config, f fileConfig) (Config, error) {
 }
 
 func applyEnvironment(c Config) (Config, error) {
-	if value, ok := os.LookupEnv("BOOXD_MIRRORS"); ok {
-		if strings.TrimSpace(value) != "" {
-			parts := strings.Split(value, ",")
-			values := make([]string, 0, len(parts))
-			for _, part := range parts {
-				if part = strings.TrimSpace(part); part != "" {
-					values = append(values, part)
-				}
+	if value, ok := os.LookupEnv("BOOXD_MIRRORS"); ok && strings.TrimSpace(value) != "" {
+		parts := strings.Split(value, ",")
+		values := make([]string, 0, len(parts))
+		for _, part := range parts {
+			if part = strings.TrimSpace(part); part != "" {
+				values = append(values, part)
 			}
-			v, err := validateMirrors(values, "BOOXD_MIRRORS")
-			if err != nil {
-				return c, err
-			}
-			c.Mirrors = v
 		}
+		v, err := validateMirrors(values, "BOOXD_MIRRORS")
+		if err != nil {
+			return c, err
+		}
+		c.Mirrors = v
 	}
 	for _, item := range []struct {
 		name   string
@@ -167,9 +166,9 @@ func applyEnvironment(c Config) (Config, error) {
 		}
 	}
 	if value, ok := os.LookupEnv("BOOXD_PROXY"); ok && value != "" {
-		v, err := parseProxy(value)
+		v, err := parseProxy(value, "BOOXD_PROXY")
 		if err != nil {
-			return c, fmt.Errorf("%s", strings.Replace(err.Error(), "proxy", "BOOXD_PROXY", 1))
+			return c, err
 		}
 		c.Proxy = v
 	}
@@ -195,9 +194,6 @@ func validateMirrors(values []string, field string) ([]string, error) {
 	for i, raw := range values {
 		u, err := url.Parse(strings.TrimSpace(raw))
 		if err != nil || u == nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil {
-			if strings.HasPrefix(field, "BOOXD_") {
-				return nil, fmt.Errorf("%s entry %d is not an absolute http or https URL", field, i+1)
-			}
 			return nil, fmt.Errorf("%s entry %d is not an absolute http or https URL", field, i+1)
 		}
 		result = append(result, strings.TrimRight(u.String(), "/"))
@@ -205,14 +201,10 @@ func validateMirrors(values []string, field string) ([]string, error) {
 	return result, nil
 }
 
-func parseProxy(raw string) (*url.URL, error) {
+func parseProxy(raw, field string) (*url.URL, error) {
 	u, err := url.Parse(raw)
 	if err != nil || u == nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https" && u.Scheme != "socks5") {
-		scheme := "invalid"
-		if u != nil && u.Scheme != "" {
-			scheme = u.Scheme
-		}
-		return nil, fmt.Errorf("proxy has unsupported or invalid scheme %q", scheme)
+		return nil, fmt.Errorf("%s is not a valid http, https or socks5 URL", field)
 	}
 	return u, nil
 }

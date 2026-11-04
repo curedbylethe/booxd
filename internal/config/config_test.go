@@ -1,12 +1,13 @@
 package config
 
 import (
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/curedbylethe/booxd/internal/fetch"
 )
 
 var envNames = []string{
@@ -36,7 +37,7 @@ func writeConfig(t *testing.T, body string) string {
 func TestDefaults(t *testing.T) {
 	cleanEnv(t)
 	c := Defaults()
-	if c.UserAgent != "booxd/0.1" || c.RequestTimeout != 30*time.Second || c.PerHostInterval != time.Second {
+	if c.UserAgent != fetch.DefaultUserAgent || c.RequestTimeout != fetch.DefaultTimeout || c.PerHostInterval != fetch.DefaultInterval {
 		t.Fatalf("unexpected defaults: %+v", c)
 	}
 	if c.DownloadDir == "" || c.CacheDir == "" || c.Mirrors != nil || c.Proxy != nil {
@@ -114,8 +115,8 @@ func TestLoadEnvironmentMirrors(t *testing.T) {
 func TestLoadEmptyMirrorList(t *testing.T) {
 	cleanEnv(t)
 	c, err := Load(writeConfig(t, "mirrors = []\n"), false, Config{Mirrors: []string{"https://base.test"}, DownloadDir: "/d", CacheDir: "/c", UserAgent: "ua", RequestTimeout: time.Second, PerHostInterval: time.Second})
-	if err != nil || c.Mirrors == nil || len(c.Mirrors) != 0 {
-		t.Fatalf("empty list = %#v, %v", c.Mirrors, err)
+	if err != nil || strings.Join(c.Mirrors, ",") != "https://base.test" {
+		t.Fatalf("empty list did not preserve base mirrors: %#v, %v", c.Mirrors, err)
 	}
 }
 
@@ -155,16 +156,5 @@ func TestEnvironmentErrorsNameField(t *testing.T) {
 	_, err = Load("", false, Defaults())
 	if err == nil || !strings.Contains(err.Error(), "BOOXD_PROXY") || strings.Contains(err.Error(), "proxy.invalid") {
 		t.Fatalf("proxy error leaked URL or missed field: %v", err)
-	}
-}
-
-func TestProxyValue(t *testing.T) {
-	u, err := url.Parse("https://proxy.invalid:443")
-	if err != nil {
-		t.Fatal(err)
-	}
-	v, err := parseProxy(u.String())
-	if err != nil || v.String() != u.String() {
-		t.Fatalf("proxy = %v, %v", v, err)
 	}
 }

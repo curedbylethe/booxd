@@ -158,16 +158,17 @@ func TestRunConfig(t *testing.T) {
 	t.Setenv("BOOXD_USER_AGENT", "env/2")
 	var out, stderr bytes.Buffer
 	clients, resolutions := 0, 0
+	wantAgent, wantOverride := "env/2", ""
 	newClient := func(cfg config.Config, _ io.Writer) *fetch.Client {
 		clients++
-		if cfg.UserAgent != "env/2" {
-			t.Errorf("user agent = %q, want env/2", cfg.UserAgent)
+		if cfg.UserAgent != wantAgent {
+			t.Errorf("user agent = %q, want %q", cfg.UserAgent, wantAgent)
 		}
 		return fetch.New(fetch.WithLookup(func(context.Context, string) (int, []byte, bool) { return 200, []byte(card), true }))
 	}
 	resolve := func(_ context.Context, cfg config.Config, override string, _ *fetch.Client) (string, error) {
 		resolutions++
-		if cfg.UserAgent != "env/2" || len(cfg.Mirrors) == 0 || override != "" {
+		if cfg.UserAgent != wantAgent || len(cfg.Mirrors) == 0 || override != wantOverride {
 			t.Errorf("config = %#v, override = %q", cfg, override)
 		}
 		return "https://mirror.test", nil
@@ -186,5 +187,57 @@ func TestRunConfig(t *testing.T) {
 	code = run([]string{"search", "--config", badPath, "test"}, &out, &stderr, resolve, newClient)
 	if code != 1 || clients != 0 || resolutions != 0 || out.Len() != 0 || strings.Count(stderr.String(), "\n") != 1 || !strings.Contains(stderr.String(), badPath) || !strings.Contains(stderr.String(), "request_timeout") {
 		t.Fatalf("malformed config: code=%d clients=%d resolutions=%d stdout=%q stderr=%q", code, clients, resolutions, out.String(), stderr.String())
+	}
+
+	otherPath := filepath.Join(t.TempDir(), "environment.toml")
+	if err := os.WriteFile(otherPath, []byte("user_agent = \"environment/1\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("BOOXD_CONFIG", otherPath)
+	t.Setenv("BOOXD_USER_AGENT", "")
+	wantAgent = "file/1"
+	out.Reset()
+	stderr.Reset()
+	code = run([]string{"search", "--config", path, "test"}, &out, &stderr, resolve, newClient)
+	if code != 0 {
+		t.Fatalf("flag config path lost to BOOXD_CONFIG: code=%d stderr=%q", code, stderr.String())
+	}
+
+	defaultHome := t.TempDir()
+	t.Setenv("HOME", defaultHome)
+	defaultPath, err := config.Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(defaultPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(defaultPath, []byte("user_agent = \"default-path/1\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("BOOXD_CONFIG", "")
+	wantAgent = "default-path/1"
+	out.Reset()
+	stderr.Reset()
+	code = run([]string{"search", "test"}, &out, &stderr, resolve, newClient)
+	if code != 0 {
+		t.Fatalf("default config path failed: code=%d stderr=%q", code, stderr.String())
+	}
+
+	out.Reset()
+	stderr.Reset()
+	missing := filepath.Join(t.TempDir(), "missing.toml")
+	code = run([]string{"search", "--config", missing, "test"}, &out, &stderr, resolve, newClient)
+	if code != 1 || !strings.Contains(stderr.String(), missing) || strings.Count(stderr.String(), "\n") != 1 {
+		t.Fatalf("explicit missing config: code=%d stderr=%q", code, stderr.String())
+	}
+
+	wantOverride = "https://override.test"
+	wantAgent = "default-path/1"
+	out.Reset()
+	stderr.Reset()
+	code = run([]string{"search", "--mirror", wantOverride, "test"}, &out, &stderr, resolve, newClient)
+	if code != 0 {
+		t.Fatalf("mirror flag with config failed: code=%d stderr=%q", code, stderr.String())
 	}
 }
