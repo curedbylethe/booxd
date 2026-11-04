@@ -54,6 +54,10 @@ func Search(r io.Reader) ([]Book, error) {
 	if count >= 0 && count != len(books) {
 		return nil, fmt.Errorf("parse search: parsed %d of %d results", len(books), count)
 	}
+	// A real miss says "Showing 0 results"; no count and no cards is another page.
+	if count < 0 && len(books) == 0 {
+		return nil, fmt.Errorf("parse search: no result count; not a search results page")
+	}
 	return books, nil
 }
 
