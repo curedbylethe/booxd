@@ -45,11 +45,13 @@ Supported fields are `mirrors` (TOML string array; embedded seeds by default),
 `http`, `https`, and `socks5` URLs. Termux users may set `download_dir` to
 `$HOME/storage/downloads` after enabling shared storage.
 
-Environment overrides use `BOOXD_MIRRORS` (comma-separated),
-`BOOXD_DOWNLOAD_DIR`, `BOOXD_CACHE_DIR`, `BOOXD_PROXY`, `BOOXD_USER_AGENT`,
+An empty `mirrors` list keeps the embedded seeds. Environment overrides use
+`BOOXD_MIRRORS` (comma-separated), `BOOXD_DOWNLOAD_DIR`, `BOOXD_CACHE_DIR`,
+`BOOXD_PROXY`, `BOOXD_USER_AGENT`,
 `BOOXD_REQUEST_TIMEOUT`, and `BOOXD_PER_HOST_INTERVAL`. Precedence is flag,
-environment, file, then compiled default. A malformed value prints one line
-naming the config path and field.
+environment, file, then compiled default. A malformed file value prints one
+line naming the file and field; a malformed environment variable names the
+variable.
 
 Discovery probes embedded seeds in order with a five-second timeout per seed. The
 first passing mirror is reused for 24 hours without probing. A 403, 404, or timeout
