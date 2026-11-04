@@ -9,12 +9,14 @@ This repository is the skeleton for searching, inspecting, and fetching books.
 does not fetch search results yet. The other four commands remain stubs: they print
 "not implemented yet" and exit 1. Parsing, downloads, and the TUI come later.
 No arguments prints usage and exits 2; an unknown command also exits 2.
+Requests to a host run one at a time, with at least one second between starts.
+The client waits after a 429 and retries a 5xx twice. `--verbose` logs attempts.
 
 ## Commands
 
 | Command | Output today |
 | -- | -- |
-| `booxd search` | `mirror: <url>` on stderr, then `booxd: search is not implemented yet` on stdout; exit 1 |
+| `booxd search [--verbose]` | `mirror: <url>` on stderr, then `booxd: search is not implemented yet` on stdout; exit 1 |
 | `booxd get` | `booxd: get is not implemented yet` |
 | `booxd show` | `booxd: show is not implemented yet` |
 | `booxd tui` | `booxd: tui is not implemented yet` |
@@ -22,6 +24,7 @@ No arguments prints usage and exits 2; an unknown command also exits 2.
 
 `booxd search --mirror URL` uses `URL` and skips discovery entirely. Put flags
 before query arguments; `booxd search -h` shows search usage and exits 2.
+`booxd search --verbose` logs host, status, and wait for each attempt to stderr.
 
 Discovery probes embedded seeds in order with a five-second timeout per seed. The
 first passing mirror is reused for 24 hours without probing. A 403, 404, or timeout
@@ -49,7 +52,7 @@ Ensure Go's binary installation directory is on `PATH`.
 Implemented packages:
 
 - `internal/mirror`: mirror seeds, probing, selected-mirror persistence, and cooldown.
-- `internal/fetch`: the shared HTTP client, context deadlines, and per-host serialization. `per_host_interval`, retry/backoff, and a cookie jar remain planned.
+- `internal/fetch`: the shared HTTP client, per-host throttling, retry/backoff, and cache lookup. A cookie jar remains planned.
 
 Package skeletons and their planned responsibilities:
 

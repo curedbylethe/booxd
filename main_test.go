@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"testing"
 )
 
 func TestRun(t *testing.T) {
-	help := "usage: booxd search [flags] [query]\nflags must precede query arguments\n  -mirror string\n    \tbase URL; skip mirror discovery\n"
+	help := "usage: booxd search [flags] [query]\nflags must precede query arguments\n  -mirror string\n    \tbase URL; skip mirror discovery\n  -verbose\n    \tlog each fetch attempt to stderr\n"
 	for _, tt := range []struct {
 		name     string
 		args     []string
@@ -18,10 +19,12 @@ func TestRun(t *testing.T) {
 		calls    int
 		override string
 		failure  bool
+		verbose  bool
 	}{
 		{name: "no argument", code: 2, err: "usage: booxd <search|get|show|tui|serve>\n"},
 		{name: "unknown command", args: []string{"nope"}, code: 2, err: "booxd: unknown command \"nope\"\n"},
 		{name: "search", args: []string{"search"}, code: 1, out: "booxd: search is not implemented yet\n", err: "mirror: https://mirror.test\n", calls: 1},
+		{name: "search verbose", args: []string{"search", "--verbose"}, code: 1, out: "booxd: search is not implemented yet\n", err: "mirror: https://mirror.test\n", calls: 1, verbose: true},
 		{name: "search override", args: []string{"search", "--mirror", "https://override.test"}, code: 1, out: "booxd: search is not implemented yet\n", err: "mirror: https://override.test\n", calls: 1, override: "https://override.test"},
 		{name: "search positional argument", args: []string{"search", "test"}, code: 1, out: "booxd: search is not implemented yet\n", err: "mirror: https://mirror.test\n", calls: 1},
 		{name: "search resolver error", args: []string{"search"}, code: 1, err: "booxd: no working mirror: x\n", calls: 1, failure: true},
@@ -36,8 +39,11 @@ func TestRun(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			calls := 0
-			resolve := func(ctx context.Context, override string) (string, error) {
+			resolve := func(ctx context.Context, override string, verbose io.Writer) (string, error) {
 				calls++
+				if (verbose != nil) != tt.verbose || (verbose != nil && verbose != &stderr) {
+					t.Errorf("verbose writer = %v, want enabled %t", verbose, tt.verbose)
+				}
 				if override != tt.override {
 					t.Errorf("override = %q, want %q", override, tt.override)
 				}
@@ -65,11 +71,11 @@ func TestRun(t *testing.T) {
 func TestResolveMirrorOverride(t *testing.T) {
 	t.Setenv("HOME", "")
 	t.Setenv("XDG_CACHE_HOME", "")
-	got, err := resolveMirror(context.Background(), "https://mirror.test/")
+	got, err := resolveMirror(context.Background(), "https://mirror.test/", nil)
 	if err != nil || got != "https://mirror.test" {
 		t.Fatalf("resolveMirror override = %q, %v", got, err)
 	}
-	if _, err := resolveMirror(context.Background(), ""); err == nil {
+	if _, err := resolveMirror(context.Background(), "", nil); err == nil {
 		t.Fatal("discovery succeeded without a user cache directory")
 	}
 }
