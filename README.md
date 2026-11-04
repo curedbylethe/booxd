@@ -15,7 +15,7 @@ the network. `get` downloads one book when supplied with a session cookie file.
 `serve` remains a stub: it prints "not implemented yet" and exits 1.
 No arguments prints usage and exits 2; an unknown command also exits 2.
 Requests to a host run one at a time, with at least one second between starts.
-The client waits after a 429 and retries a 5xx twice. `--verbose` logs attempts.
+The client waits after a 429 and retries a 5xx twice. Per-host 429 deadlines and streaks persist across restarts in `<cache_dir>/booxd/fetch.json` for 24 hours. `--verbose` logs attempts.
 A timeout error names the host, the phase, and the time spent.
 
 ## Commands
@@ -110,6 +110,8 @@ unrecognized results page). Selection and cooldowns persist in
 `booxd/mirror.json` under `cache_dir`, defaulting to the platform user cache directory: `$XDG_CACHE_HOME` or
 `$HOME/.cache` on Termux, and `$HOME/Library/Caches` on macOS.
 
+429 retry state is keyed by host in `<cache_dir>/booxd/fetch.json`; entries expire after 24 hours.
+
 ## Building
 
 Use Go 1.25 or newer. `make build` produces `dist/booxd` with `CGO_ENABLED=0`.
@@ -132,7 +134,7 @@ Implemented packages:
 
 - `internal/config`: config path, defaults, TOML loading, and environment overrides.
 - `internal/mirror`: mirror seeds, probing, selected-mirror persistence, and cooldown.
-- `internal/fetch`: the shared HTTP client, streaming responses, cookie jar, per-host throttling, retry/backoff, and cache lookup. On Android, DNS uses the first valid nameserver IP in `$PREFIX/etc/resolv.conf` (default prefix `/data/data/com.termux/files/usr`), falling back to `8.8.8.8` if the file is missing or has no valid nameserver.
+- `internal/fetch`: the shared HTTP client, streaming responses, cookie jar, per-host throttling, persisted 429 state, retry/backoff, and cache lookup. On Android, DNS uses the first valid nameserver IP in `$PREFIX/etc/resolv.conf` (default prefix `/data/data/com.termux/files/usr`), falling back to `8.8.8.8` if the file is missing or has no valid nameserver.
 - `internal/cache`: disk query cache with normalized keys, atomic JSON writes, TTL reads, and expiry sweep.
 - `internal/parse`: search and detail HTML into book metadata and download
   options, without network access.

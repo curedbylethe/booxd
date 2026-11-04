@@ -26,7 +26,11 @@ type resolveFunc func(ctx context.Context, cfg config.Config, override string, c
 type clientFunc func(cfg config.Config, verbose io.Writer, jar http.CookieJar) *fetch.Client
 
 func newFetchClient(cfg config.Config, verbose io.Writer, jar http.CookieJar) *fetch.Client {
-	return fetch.New(fetch.WithVerbose(verbose), fetch.WithUserAgent(cfg.UserAgent), fetch.WithTimeout(cfg.RequestTimeout), fetch.WithInterval(cfg.PerHostInterval), fetch.WithProxy(cfg.Proxy), fetch.WithJar(jar))
+	opts := []fetch.Option{fetch.WithVerbose(verbose), fetch.WithUserAgent(cfg.UserAgent), fetch.WithTimeout(cfg.RequestTimeout), fetch.WithInterval(cfg.PerHostInterval), fetch.WithProxy(cfg.Proxy), fetch.WithJar(jar)}
+	if path, err := fetch.StatePath(cfg.CacheDir); err == nil {
+		opts = append(opts, fetch.WithStatePath(path))
+	}
+	return fetch.New(opts...)
 }
 
 func resolveMirror(ctx context.Context, cfg config.Config, override string, client *fetch.Client) (string, error) {

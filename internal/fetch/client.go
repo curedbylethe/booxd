@@ -131,6 +131,8 @@ type Client struct {
 	interval  time.Duration
 	verbose   io.Writer
 	lookup    Lookup
+	statePath string
+	stateMu   sync.Mutex
 }
 
 // New returns the shared HTTP client.
@@ -205,7 +207,11 @@ func (c *Client) Open(ctx context.Context, rawURL string, header http.Header) (*
 	}
 	req.Header.Set("User-Agent", c.userAgent)
 
-	state, _ := c.hosts.LoadOrStore(u.Host, &hostState{})
+	state, ok := c.hosts.Load(u.Host)
+	if !ok {
+		record := c.loadRetryState().Hosts[u.Host]
+		state, _ = c.hosts.LoadOrStore(u.Host, &hostState{next: record.RetryUntil, streak: record.Streak})
+	}
 	st := state.(*hostState)
 	st.mu.Lock()
 	locked := true
@@ -265,6 +271,7 @@ func (c *Client) Open(ctx context.Context, rawURL string, header http.Header) (*
 			if deadline.After(st.next) {
 				st.next = deadline
 			}
+			c.saveRetryState(u.Host, hostRecord{RetryUntil: st.next, Streak: st.streak, UpdatedAt: c.clock.Now()})
 			if attempt == maxAttempts {
 				release()
 				return bufferedStream(result), nil
@@ -279,6 +286,9 @@ func (c *Client) Open(ctx context.Context, rawURL string, header http.Header) (*
 			waited = wait
 			status = fmt.Sprint(result.StatusCode)
 			continue
+		}
+		if st.streak != 0 {
+			c.saveRetryState(u.Host, hostRecord{})
 		}
 		st.streak = 0
 		last429 = nil
