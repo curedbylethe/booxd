@@ -43,6 +43,8 @@ func TestRun(t *testing.T) {
 		{name: "unknown flag", args: []string{"search", "--nope"}, code: 2, err: "flag provided but not defined: -nope\n" + help},
 		{name: "missing flag", args: []string{"search", "--mirror"}, code: 2, err: "flag needs an argument: -mirror\n" + help},
 		{name: "help", args: []string{"search", "-h"}, code: 2, err: help},
+		{name: "tui help", args: []string{"tui", "-h"}, code: 2, err: "usage: booxd tui [flags]\n  -mono\n    \tdisable colour\n"},
+		{name: "tui unknown flag", args: []string{"tui", "--bogus"}, code: 2, err: "flag provided but not defined: -bogus\nusage: booxd tui [flags]\n  -mono\n    \tdisable colour\n"},
 		{name: "get", args: []string{"get"}, code: 1, out: "booxd: get is not implemented yet\n"},
 		{name: "serve", args: []string{"serve"}, code: 1, out: "booxd: serve is not implemented yet\n"},
 	} {
@@ -89,6 +91,24 @@ func TestRun(t *testing.T) {
 				t.Fatalf("resolver calls = %d, clients = %d, URL = %q; want %d, %d, %q", calls, clients, gotURL, tt.calls, tt.calls, tt.url)
 			}
 		})
+	}
+}
+
+func TestMonoEnabled(t *testing.T) {
+	for _, tt := range []struct {
+		flagMono bool
+		noColor  string
+		want     bool
+	}{
+		{flagMono: false, noColor: "", want: false},
+		{flagMono: false, noColor: "1", want: true},
+		{flagMono: false, noColor: "0", want: true},
+		{flagMono: true, noColor: "", want: true},
+		{flagMono: true, noColor: "1", want: true},
+	} {
+		if got := monoEnabled(tt.flagMono, tt.noColor); got != tt.want {
+			t.Errorf("monoEnabled(%t, %q) = %t, want %t", tt.flagMono, tt.noColor, got, tt.want)
+		}
 	}
 }
 
