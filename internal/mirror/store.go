@@ -19,12 +19,15 @@ type state struct {
 }
 
 // StatePath returns the default mirror cache file without creating it.
-func StatePath() (string, error) {
-	dir, err := os.UserCacheDir()
-	if err != nil {
-		return "", err
+func StatePath(cacheDir string) (string, error) {
+	if cacheDir == "" {
+		var err error
+		cacheDir, err = os.UserCacheDir()
+		if err != nil {
+			return "", err
+		}
 	}
-	return filepath.Join(dir, "booxd", "mirror.json"), nil
+	return filepath.Join(cacheDir, "booxd", "mirror.json"), nil
 }
 
 func loadState(path string) state {
