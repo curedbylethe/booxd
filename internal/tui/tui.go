@@ -46,8 +46,7 @@ func runScreenWithTheme(ctx context.Context, screen tcell.Screen, search SearchF
 	screen.HideCursor()
 	_, height := screen.Size()
 	m := model{view: stateQuery, height: height, theme: newTheme(mono)}
-	draw(screen, m)
-	screen.Show()
+	paint(screen, m)
 	for {
 		event := screen.PollEvent()
 		if event == nil {
@@ -60,8 +59,7 @@ func runScreenWithTheme(ctx context.Context, screen tcell.Screen, search SearchF
 			_, m.height = screen.Size()
 			m.offset = visibleOffset(m.selected, m.offset, m.height-3, len(m.books))
 			screen.Sync()
-			draw(screen, m)
-			screen.Show()
+			paint(screen, m)
 		case *tcell.EventKey:
 			var act action
 			m, act = handleKey(m, ev)
@@ -71,18 +69,21 @@ func runScreenWithTheme(ctx context.Context, screen tcell.Screen, search SearchF
 			if act.search {
 				m.status = "…"
 				m.statusErr = false
-				draw(screen, m)
-				screen.Show()
+				paint(screen, m)
 				books, err := search(ctx, m.query)
 				m = applyResults(m, books, err)
-				draw(screen, m)
-				screen.Show()
+				paint(screen, m)
 				continue
 			}
 			if act.dirty {
-				draw(screen, m)
-				screen.Show()
+				paint(screen, m)
 			}
 		}
 	}
+}
+
+// paint is the only caller of Show. One deliberate frame per state change.
+func paint(screen tcell.Screen, m model) {
+	draw(screen, m)
+	screen.Show()
 }
