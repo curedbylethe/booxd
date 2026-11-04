@@ -11,7 +11,11 @@ import (
 	"time"
 )
 
-const userAgent = "booxd/0.1"
+// DefaultUserAgent identifies requests sent by the client.
+const DefaultUserAgent = "booxd/0.1"
+
+// DefaultTimeout bounds the full lifetime of an HTTP request.
+const DefaultTimeout = 30 * time.Second
 
 // DefaultInterval is the minimum time between request starts to one host.
 const DefaultInterval = time.Second
@@ -49,6 +53,41 @@ func WithLookup(lookup Lookup) Option { return func(c *Client) { c.lookup = look
 // WithInterval sets the minimum spacing between request starts.
 func WithInterval(d time.Duration) Option { return func(c *Client) { c.interval = d } }
 
+// WithUserAgent sets the request User-Agent. An empty value keeps the default.
+func WithUserAgent(userAgent string) Option {
+	return func(c *Client) {
+		if userAgent != "" {
+			c.userAgent = userAgent
+		}
+	}
+}
+
+// WithProxy sets the proxy used by the client. A nil URL keeps the default transport.
+func WithProxy(proxy *url.URL) Option {
+	return func(c *Client) {
+		if proxy == nil {
+			return
+		}
+		if transport, ok := http.DefaultTransport.(*http.Transport); ok {
+			clone := transport.Clone()
+			clone.Proxy = http.ProxyURL(proxy)
+			c.http.Transport = clone
+			return
+		}
+		// shortcut: test doubles cannot be cloned; use a minimal transport only for configured proxies.
+		c.http.Transport = &http.Transport{Proxy: http.ProxyURL(proxy)}
+	}
+}
+
+// WithTimeout sets the request timeout. A non-positive value keeps the default.
+func WithTimeout(timeout time.Duration) Option {
+	return func(c *Client) {
+		if timeout > 0 {
+			c.http.Timeout = timeout
+		}
+	}
+}
+
 // WithVerbose enables attempt logging to w. The writer must support concurrent writes.
 func WithVerbose(w io.Writer) Option { return func(c *Client) { c.verbose = w } }
 
@@ -64,18 +103,20 @@ type hostState struct {
 
 // Client sends requests through a shared transport, one at a time per host.
 type Client struct {
-	http     *http.Client
-	hosts    sync.Map
-	clock    Clock
-	interval time.Duration
-	verbose  io.Writer
-	lookup   Lookup
+	http      *http.Client
+	userAgent string
+	hosts     sync.Map
+	clock     Clock
+	interval  time.Duration
+	verbose   io.Writer
+	lookup    Lookup
 }
 
 // New returns the shared HTTP client.
 func New(opts ...Option) *Client {
-	c := &Client{clock: systemClock{}, interval: DefaultInterval, http: &http.Client{
+	c := &Client{clock: systemClock{}, interval: DefaultInterval, userAgent: DefaultUserAgent, http: &http.Client{
 		Transport: http.DefaultTransport,
+		Timeout:   DefaultTimeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
@@ -112,7 +153,7 @@ func (c *Client) Get(ctx context.Context, rawURL string) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("User-Agent", c.userAgent)
 
 	state, _ := c.hosts.LoadOrStore(u.Host, &hostState{})
 	st := state.(*hostState)

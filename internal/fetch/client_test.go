@@ -81,7 +81,7 @@ func TestGetStatus(t *testing.T) {
 	for _, status := range []int{200, 403, 404, 429} {
 		t.Run(fmt.Sprint(status), func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.Method != http.MethodGet || r.UserAgent() != userAgent {
+				if r.Method != http.MethodGet || r.UserAgent() != DefaultUserAgent {
 					t.Errorf("method = %q, User-Agent = %q", r.Method, r.UserAgent())
 				}
 				w.WriteHeader(status)
@@ -96,6 +96,69 @@ func TestGetStatus(t *testing.T) {
 				t.Fatalf("response = %#v, want status %d and exact body", resp, status)
 			}
 		})
+	}
+}
+
+func TestGetUserAgent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.UserAgent(); got != "custom/1" {
+			t.Errorf("User-Agent = %q, want custom/1", got)
+		}
+	}))
+	t.Cleanup(server.Close)
+	if _, err := New(WithUserAgent("custom/1")).Get(context.Background(), server.URL); err != nil {
+		t.Fatal(err)
+	}
+	if got := New(WithUserAgent("")).userAgent; got != DefaultUserAgent {
+		t.Fatalf("empty User-Agent option = %q, want default", got)
+	}
+}
+
+func TestGetUsesProxy(t *testing.T) {
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Host != "unresolvable.invalid" {
+			t.Errorf("proxy request host = %q", r.URL.Host)
+		}
+		_, _ = io.WriteString(w, "proxied")
+	}))
+	t.Cleanup(proxy.Close)
+	proxyURL, err := url.Parse(proxy.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := New(WithProxy(proxyURL)).Get(context.Background(), "http://unresolvable.invalid/path")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(resp.Body) != "proxied" {
+		t.Fatalf("body = %q, want proxied", resp.Body)
+	}
+}
+
+func TestGetTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(100 * time.Millisecond)
+		_, _ = io.WriteString(w, "late")
+	}))
+	t.Cleanup(server.Close)
+	resp, err := New(WithTimeout(10*time.Millisecond)).Get(context.Background(), server.URL)
+	if resp != nil || err == nil {
+		t.Fatalf("response = %#v, error = %v; want timeout", resp, err)
+	}
+	if got := New(WithTimeout(0)).http.Timeout; got != DefaultTimeout {
+		t.Fatalf("non-positive timeout = %s, want %s", got, DefaultTimeout)
+	}
+}
+
+func TestNewDoesNotMutateDefaultTransport(t *testing.T) {
+	original := http.DefaultTransport
+	proxyURL, err := url.Parse("http://proxy.invalid:3128")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = New(WithProxy(proxyURL))
+	if http.DefaultTransport != original {
+		t.Fatal("New mutated http.DefaultTransport")
 	}
 }
 
