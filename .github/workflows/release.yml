@@ -155,8 +155,8 @@ jobs:
           go version -m dist/booxd | grep -F 'GOARCH=arm64'
           go version -m dist/booxd | grep -F 'CGO_ENABLED=0'
           go version -m dist/booxd | grep -F -- '-trimpath=true'
-          readelf -h dist/booxd | grep -F 'Class: ELF64'
-          readelf -h dist/booxd | grep -F 'Machine: AArch64'
+          readelf -h dist/booxd | grep -E 'Class:[[:space:]]+ELF64'
+          readelf -h dist/booxd | grep -E 'Machine:[[:space:]]+AArch64'
           readelf -l dist/booxd | grep -F '/system/bin/linker64'
       - name: Run Unix binary
         if: runner.os != 'Windows' && matrix.goos != 'android'
@@ -174,6 +174,14 @@ jobs:
           fi
           printf '%s\n' "$output"
           printf '%s\n' "$output" | grep -F "($GOOS/$GOARCH)"
+          if [ "$GOOS" = linux ] && [ "$GOARCH" = amd64 ]; then
+            asset="booxd_${version}_linux_amd64.tar.gz"
+            (cd dist && sha256sum "$asset" > SHA256SUMS)
+            install_dir=$(mktemp -d)
+            trap 'rm -rf "$install_dir"' EXIT
+            BOOXD_BASE_URL=dist BOOXD_VERSION="$TAG" BOOXD_BIN_DIR="$install_dir" sh install.sh
+            test -x "$install_dir/booxd"
+          fi
       - name: Run Windows binary
         if: runner.os == 'Windows'
         shell: pwsh
