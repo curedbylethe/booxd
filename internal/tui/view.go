@@ -40,39 +40,31 @@ func drawResults(screen tcell.Screen, m model, width, height int) {
 		}
 	}
 
-	titleWidth := width - 46
-	columns := []struct {
-		x     int
-		width int
-		name  string
-	}{
-		{0, titleWidth, "TITLE"},
-		{titleWidth + 1, 24, "AUTHOR"},
-		{titleWidth + 26, 4, "YEAR"},
-		{titleWidth + 31, 6, "FORMAT"},
-		{titleWidth + 38, 8, "SIZE"},
-	}
-	for _, column := range columns {
-		screen.PutStrStyled(column.x, 1, truncate(column.name, column.width), m.theme.dim)
-	}
-
-	visible := height - 3
+	visible := visibleResults(height)
 	for row := 0; row < visible; row++ {
 		index := m.offset + row
 		if index >= len(m.books) {
 			break
 		}
-		y := row + 2
+		y := row*2 + 1
 		style := m.theme.base
+		metadataStyle := m.theme.dim
 		if index == m.selected {
 			style = m.theme.reverse
+			metadataStyle = m.theme.reverse
 			screen.PutStrStyled(0, y, strings.Repeat(" ", width), style)
+			screen.PutStrStyled(0, y+1, strings.Repeat(" ", width), style)
 		}
 		book := m.books[index]
-		values := []string{book.Title, book.Author, book.Year, book.Format, book.Size}
-		for i, column := range columns {
-			screen.PutStrStyled(column.x, y, truncate(values[i], column.width), style)
+		values := []string{book.Author, book.Year, book.Format, book.Size}
+		metadata := make([]string, 0, len(values))
+		for _, value := range values {
+			if value != "" {
+				metadata = append(metadata, value)
+			}
 		}
+		screen.PutStrStyled(0, y, truncate(book.Title, width), style)
+		screen.PutStrStyled(0, y+1, truncate(strings.Join(metadata, " · "), width), metadataStyle)
 	}
 	status := m.status
 	if status == "" {

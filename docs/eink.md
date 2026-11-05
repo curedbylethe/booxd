@@ -50,7 +50,7 @@ The panel is the constraint, not the terminal. A full refresh stays visible for 
 
 **Why:** Box edges and partial-width bands can force scrolling and leave trails.
 
-**Guard:** `TestFrameAudit`. The current results view remains a five-field table in this panel; it is not a single-column results list.
+**Guard:** `TestFrameAudit`. The results view is a single full-width column. Each record has a title line and a metadata line for author, year, format, and size; both lines of the selected record reverse across the full width.
 
 ## Check on the device
 
