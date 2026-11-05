@@ -36,6 +36,7 @@ if ($hadUserPath) {
 }
 try {
     $environmentKey.SetValue('Path', '%USERPROFILE%\bin', [Microsoft.Win32.RegistryValueKind]::ExpandString)
+    $oldEnvironmentNames = @($environmentKey.GetValueNames() | Sort-Object)
     $env:BOOXD_BASE_URL = $release
     $env:BOOXD_VERSION = '9.9.9'
     $env:BOOXD_BIN_DIR = ''
@@ -64,6 +65,9 @@ try {
     $rawUserPath = $environmentKey.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
     if (-not $rawUserPath.Contains('%USERPROFILE%\bin') -or $environmentKey.GetValueKind('Path') -ne [Microsoft.Win32.RegistryValueKind]::ExpandString) {
         throw 'Installer changed expandable PATH entries or their registry type.'
+    }
+    if ((@($environmentKey.GetValueNames() | Sort-Object) -join "`n") -ne ($oldEnvironmentNames -join "`n")) {
+        throw 'Installer left temporary user environment variables behind.'
     }
     $entries = @([Environment]::GetEnvironmentVariable('Path', 'User') -split ';' | Where-Object { $_ })
     $count = @($entries | Where-Object { [string]::Equals($_, (Split-Path -Parent $installed), [StringComparison]::OrdinalIgnoreCase) }).Count

@@ -65,6 +65,9 @@ try {
         if (-not ($entries | Where-Object { [string]::Equals($_, $destination, [StringComparison]::OrdinalIgnoreCase) })) {
             $newPath = (@($entries) + $destination) -join ';'
             Set-ItemProperty -Path 'HKCU:\Environment' -Name Path -Value $newPath -Type ExpandString
+            $refreshName = "BOOXD_PATH_REFRESH_$([Guid]::NewGuid().ToString('N'))"
+            [Environment]::SetEnvironmentVariable($refreshName, '1', 'User')
+            [Environment]::SetEnvironmentVariable($refreshName, $null, 'User')
             $pathChanged = $true
         }
         if (-not (($env:Path -split ';') | Where-Object { [string]::Equals($_, $destination, [StringComparison]::OrdinalIgnoreCase) })) {
