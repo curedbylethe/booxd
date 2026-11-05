@@ -1,0 +1,243 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to build
+        required: true
+        type: string
+      dry_run:
+        description: Build and smoke-test without publishing
+        required: true
+        type: boolean
+        default: true
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: github.repository == 'curedbylethe/booxd'
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.dry_run && github.ref || inputs.tag || github.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go test ./...
+
+  build:
+    if: github.repository == 'curedbylethe/booxd'
+    needs: verify
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "0"
+      TAG: ${{ inputs.tag || github.ref_name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: darwin
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: linux
+            goarch: amd64
+          - goos: windows
+            goarch: amd64
+          - goos: android
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.dry_run && github.ref || inputs.tag || github.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Build and package
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -eu
+          case "$TAG" in v*) version=${TAG#v} ;; *) echo "tag must start with v" >&2; exit 1 ;; esac
+          mkdir -p dist
+          binary=booxd
+          archive="booxd_${version}_${GOOS}_${GOARCH}.tar.gz"
+          if [ "$GOOS" = windows ]; then
+            binary=booxd.exe
+            archive="booxd_${version}_${GOOS}_${GOARCH}.zip"
+          fi
+          go build -trimpath -ldflags "-s -w -X main.version=$TAG" -o "dist/$binary" .
+          if [ "$GOOS" = windows ]; then
+            (cd dist && zip -q "$archive" "$binary")
+          else
+            chmod 755 "dist/$binary"
+            mkdir -p dist/stage
+            cp "dist/$binary" dist/stage/booxd
+            tar -czf "dist/$archive" -C dist/stage booxd
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: booxd-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/booxd_*
+          if-no-files-found: error
+
+  smoke:
+    if: github.repository == 'curedbylethe/booxd'
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            runner: ubuntu-latest
+          - goos: linux
+            goarch: arm64
+            runner: ubuntu-latest
+          - goos: darwin
+            goarch: arm64
+            runner: macos-latest
+          - goos: darwin
+            goarch: amd64
+            runner: macos-latest
+          - goos: windows
+            goarch: amd64
+            runner: windows-latest
+          - goos: android
+            goarch: arm64
+            runner: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.dry_run && github.ref || inputs.tag || github.ref }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v8
+        with:
+          name: booxd-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist
+      - name: Enable linux/arm64 execution
+        if: matrix.goos == 'linux' && matrix.goarch == 'arm64'
+        uses: docker/setup-qemu-action@v3
+      - uses: actions/setup-go@v7
+        if: matrix.goos == 'android'
+        with:
+          go-version-file: go.mod
+      - name: Inspect Android binary
+        if: matrix.goos == 'android'
+        run: |
+          set -eu
+          version=${TAG#v}
+          tar -xzf "dist/booxd_${version}_${GOOS}_${GOARCH}.tar.gz" -C dist
+          go version -m dist/booxd | grep -F 'GOOS=android'
+          go version -m dist/booxd | grep -F 'GOARCH=arm64'
+          go version -m dist/booxd | grep -F 'CGO_ENABLED=0'
+          go version -m dist/booxd | grep -F -- '-trimpath=true'
+          readelf -h dist/booxd | grep -F 'Class: ELF64'
+          readelf -h dist/booxd | grep -F 'Machine: AArch64'
+          readelf -l dist/booxd | grep -F '/system/bin/linker64'
+      - name: Run Unix binary
+        if: runner.os != 'Windows' && matrix.goos != 'android'
+        shell: bash
+        run: |
+          set -eu
+          version=${TAG#v}
+          tar -xzf "dist/booxd_${version}_${GOOS}_${GOARCH}.tar.gz" -C dist
+          if [ "$GOOS" = linux ] && [ "$GOARCH" = arm64 ]; then
+            output=$(docker run --rm --platform linux/arm64 -v "$PWD/dist:/w" -w /w alpine:3 ./booxd version)
+          elif [ "$GOOS" = darwin ] && [ "$GOARCH" = amd64 ]; then
+            output=$(arch -x86_64 ./dist/booxd version)
+          else
+            output=$(./dist/booxd version)
+          fi
+          printf '%s\n' "$output"
+          printf '%s\n' "$output" | grep -F "($GOOS/$GOARCH)"
+      - name: Run Windows binary
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = $env:TAG -replace '^v', ''
+          Expand-Archive "dist/booxd_${version}_windows_amd64.zip" -DestinationPath dist/unpacked
+          $output = & .\dist\unpacked\booxd.exe version
+          if ($LASTEXITCODE -ne 0 -or $output -notlike '* (windows/amd64)') {
+            throw "Unexpected version output: $output"
+          }
+          Write-Output $output
+
+  publish:
+    if: github.repository == 'curedbylethe/booxd'
+    needs: [build, smoke]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.dry_run && github.ref || inputs.tag || github.ref }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: booxd-*
+          merge-multiple: true
+          path: dist
+      - name: Add installers and verify checksums
+        run: |
+          set -eu
+          cp install.sh install.ps1 dist/
+          cd dist
+          export LC_ALL=C
+          sha256sum -- * > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - name: List dry-run assets
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+        run: find dist -maxdepth 1 -type f -print | LC_ALL=C sort
+      - uses: actions/upload-artifact@v7
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+        with:
+          name: booxd-release-dry-run
+          path: dist/*
+          if-no-files-found: error
+      - name: Reject an existing release
+        if: github.event_name != 'workflow_dispatch' || !inputs.dry_run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; delete the draft before retrying." >&2
+            exit 1
+          fi
+      - name: Publish draft release
+        if: github.event_name != 'workflow_dispatch' || !inputs.dry_run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          extra=()
+          assets=(./dist/*)
+          case "$TAG" in *-*) extra+=(--prerelease) ;; esac
+          gh release create "$TAG" "${assets[@]}" --verify-tag --generate-notes --draft --title "$TAG" "${extra[@]}"
+          gh release edit "$TAG" --draft=false
