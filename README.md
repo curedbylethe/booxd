@@ -33,7 +33,7 @@ The TUI's `--mono` flag disables colour; any non-empty `NO_COLOR` value does the
 `booxd search --mirror URL` uses `URL` and skips discovery entirely. Put flags
 before query arguments; multiple words are joined with spaces. Page defaults to 1.
 `--dump-html PATH` writes the raw response body before parsing, or the cached body
-when search falls back to cache. A missing query or
+when search serves from cache. A missing query or
 page below 1 exits 2; `booxd search -h` shows search usage and exits 2.
 The query cache lives at `<cache_dir>/booxd/cache`; `--no-cache` skips reads and
 `--max-age DURATION` overrides the default `24h` freshness window. Search refetches
