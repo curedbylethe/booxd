@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os/exec"
+	"runtime"
 	"strings"
 
 	"github.com/curedbylethe/booxd/internal/down"
@@ -136,10 +137,10 @@ func runGet(args []string, stdout, stderr io.Writer, resolve resolveFunc, newCli
 	}
 	if *open {
 		if err := openFile(path); err != nil {
-			if errors.Is(err, exec.ErrNotFound) {
+			if runtime.GOOS == "android" && errors.Is(err, exec.ErrNotFound) {
 				_, _ = fmt.Fprintf(stderr, "booxd: cannot open %s: termux-open not found; install termux-tools\n", path)
 			} else {
-				_, _ = fmt.Fprintf(stderr, "booxd: cannot open %s: %v\n", path, err)
+				_, _ = fmt.Fprintf(stderr, "booxd: saved file %s but cannot open it: %v\n", path, err)
 			}
 			return 1
 		}
