@@ -60,7 +60,7 @@ Regenerate the committed search and detail screenshots from the running TUI:
 python3 scripts/tui-screenshot.py
 ```
 
-The script uses tmux and Pillow. It is a developer tool, not part of the booxd binary.
+The script uses tmux and Pillow. It is a developer tool, not part of the booxd binary. Screenshot results come from the live site, so result order and content can change between runs.
 
 ## Changes and documentation
 
