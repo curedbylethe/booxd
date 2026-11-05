@@ -24,6 +24,9 @@ func TestFrameAudit(t *testing.T) {
 	book.Publisher = "Press"
 	book.Language = "en"
 	book.URL = "/books/0"
+	sparseBook := booksForTest(1)[0]
+	sparseBook.Author = ""
+	sparseBook.Year = ""
 
 	tests := []struct {
 		name         string
@@ -31,10 +34,13 @@ func TestFrameAudit(t *testing.T) {
 		height       int
 		model        model
 		selectedRows [2]int
+		wantTitle    string
+		wantMeta     string
 		minimum      bool
 	}{
-		{name: "results three books", width: 80, height: 24, model: resultFrame(3, 1, 0), selectedRows: [2]int{3, 4}},
+		{name: "results three books", width: 80, height: 24, model: resultFrame(3, 1, 0), selectedRows: [2]int{3, 4}, wantTitle: "Title 00", wantMeta: "Author · 2024 · epub · 1 MB"},
 		{name: "results twenty-two books scrolled", width: 80, height: 24, model: resultFrame(22, 21, 11), selectedRows: [2]int{21, 22}},
+		{name: "results omit empty metadata", width: 80, height: 24, model: model{view: stateResults, books: []parse.Book{sparseBook}, selected: 0, height: 24, theme: style}, selectedRows: [2]int{1, 2}, wantMeta: "epub · 1 MB"},
 		{name: "results empty", width: 80, height: 24, model: resultFrame(0, 0, 0), selectedRows: [2]int{-1, -1}},
 		{name: "results error", width: 80, height: 24, model: model{view: stateResults, status: "offline", statusErr: true, height: 24, theme: style}, selectedRows: [2]int{-1, -1}},
 		{name: "detail", width: 80, height: 24, model: model{view: stateDetail, books: []parse.Book{book}, height: 24, theme: style}, selectedRows: [2]int{-1, -1}},
@@ -93,19 +99,19 @@ func TestFrameAudit(t *testing.T) {
 				}
 			}
 
-			if tt.name == "results three books" {
-				row := func(y int) string {
-					var line strings.Builder
-					for x := 0; x < width; x++ {
-						line.WriteString(runesOf(cells[x+y*width]))
-					}
-					return line.String()
+			row := func(y int) string {
+				var line strings.Builder
+				for x := 0; x < width; x++ {
+					line.WriteString(runesOf(cells[x+y*width]))
 				}
-				if !strings.Contains(row(1), "Title 00") || strings.Contains(row(1), "TITLE") {
-					t.Fatalf("first result title row=%q", row(1))
-				}
-				if got := strings.TrimRight(row(2), " "); got != "Author · 2024 · epub · 1 MB" {
-					t.Fatalf("first result metadata row=%q", got)
+				return line.String()
+			}
+			if tt.wantTitle != "" && (!strings.Contains(row(1), tt.wantTitle) || strings.Contains(row(1), "TITLE")) {
+				t.Fatalf("first result title row=%q", row(1))
+			}
+			if tt.wantMeta != "" {
+				if got := strings.TrimRight(row(2), " "); got != tt.wantMeta {
+					t.Fatalf("result metadata row=%q, want %q", got, tt.wantMeta)
 				}
 			}
 
