@@ -44,7 +44,7 @@ func (c *Client) loadRetryState() retryState {
 		return retryState{Hosts: make(map[string]hostRecord)}
 	}
 	for host, record := range s.Hosts {
-		if record.UpdatedAt.IsZero() || record.UpdatedAt.Add(stateTTL).Before(c.clock.Now()) || record == (hostRecord{}) {
+		if record.UpdatedAt.IsZero() || record.UpdatedAt.Add(stateTTL).Before(c.clock.Now()) {
 			delete(s.Hosts, host)
 			continue
 		}

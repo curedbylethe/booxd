@@ -158,6 +158,9 @@ func New(opts ...Option) *Client {
 // ErrHostUnhealthy indicates a host returned a protection challenge.
 var ErrHostUnhealthy = errors.New("fetch: host unhealthy after a 403 challenge")
 
+// ErrRateLimited indicates that a 429 backoff wait was interrupted.
+var ErrRateLimited = errors.New("fetch: waiting for rate limit")
+
 // Response contains the unmodified HTTP status, headers and body.
 type Response struct {
 	StatusCode int
@@ -210,6 +213,9 @@ func (c *Client) Open(ctx context.Context, rawURL string, header http.Header) (*
 	state, ok := c.hosts.Load(u.Host)
 	if !ok {
 		record := c.loadRetryState().Hosts[u.Host]
+		if limit := c.clock.Now().Add(maxRetryAfter); record.RetryUntil.After(limit) {
+			record.RetryUntil = limit
+		}
 		state, _ = c.hosts.LoadOrStore(u.Host, &hostState{next: record.RetryUntil, streak: record.Streak})
 	}
 	st := state.(*hostState)
@@ -238,6 +244,10 @@ func (c *Client) Open(ctx context.Context, rawURL string, header http.Header) (*
 				if last429 != nil {
 					release()
 					return bufferedStream(last429), nil
+				}
+				if st.streak > 0 {
+					release()
+					return nil, fmt.Errorf("%w: %s: %w", ErrRateLimited, u.Host, err)
 				}
 				release()
 				return nil, err

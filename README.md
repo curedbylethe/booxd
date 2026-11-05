@@ -104,7 +104,8 @@ variable.
 
 Discovery probes embedded seeds in order with a five-second timeout per seed. The
 first passing mirror is reused for 24 hours without probing. A 403, 404, or timeout
-puts that seed on cooldown for one hour. If every probe fails, the error lists
+puts that seed on cooldown for one hour. A seed still waiting out a 429 fails
+the probe without a cooldown. If every probe fails, the error lists
 each attempted mirror with its failure reason (network error, HTTP status, or
 unrecognized results page). Selection and cooldowns persist in
 `booxd/mirror.json` under `cache_dir`, defaulting to the platform user cache directory: `$XDG_CACHE_HOME` or

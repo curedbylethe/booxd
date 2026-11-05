@@ -19,6 +19,9 @@ func TestRetryStateRestartAndIsolation(t *testing.T) {
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
+		if calls == 4 && len(clock.waits) == 0 {
+			t.Error("request sent before persisted wait")
+		}
 		if calls <= 3 {
 			w.Header().Set("Retry-After", "30")
 			w.WriteHeader(429)
@@ -63,6 +66,9 @@ func TestRetryStateExpiryAndInvalid(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state")
 	clock := &fakeClock{now: time.Unix(100000, 0)}
 	client := New(WithStatePath(path), WithClock(clock))
+	if len(client.loadRetryState().Hosts) != 0 {
+		t.Fatal("missing state loaded")
+	}
 	client.saveRetryState("old", hostRecord{RetryUntil: clock.now.Add(time.Hour), Streak: 1, UpdatedAt: clock.now.Add(-25 * time.Hour)})
 	if len(client.loadRetryState().Hosts) != 0 {
 		t.Fatal("expired state loaded")
@@ -73,11 +79,52 @@ func TestRetryStateExpiryAndInvalid(t *testing.T) {
 	if len(client.loadRetryState().Hosts) != 0 {
 		t.Fatal("invalid state loaded")
 	}
+	client.saveRetryState("old", hostRecord{Streak: 1, UpdatedAt: clock.now.Add(-25 * time.Hour)})
 	client.saveRetryState("a", hostRecord{Streak: -1, UpdatedAt: clock.now})
 	client.saveRetryState("b", hostRecord{Streak: 1, UpdatedAt: clock.now})
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var persisted retryState
+	if err := json.Unmarshal(data, &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := persisted.Hosts["old"]; ok {
+		t.Fatal("expired record not pruned")
+	}
 	state := client.loadRetryState()
 	if state.Hosts["a"].Streak != 0 || state.Hosts["b"].Streak != 1 {
 		t.Fatalf("state: %+v", state)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer server.Close()
+	u, _ := url.Parse(server.URL)
+	client.saveRetryState(u.Host, hostRecord{Streak: 1, UpdatedAt: clock.now})
+	client = New(WithStatePath(path), WithClock(clock), WithInterval(0))
+	if _, err := client.Get(context.Background(), server.URL); err != nil {
+		t.Fatal(err)
+	}
+	if len(clock.waits) != 0 {
+		t.Fatalf("zero deadline waited: %v", clock.waits)
+	}
+}
+
+func TestPersistedDeadlineIsCapped(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state")
+	clock := &fakeClock{now: time.Unix(100000, 0)}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer server.Close()
+	host, _ := url.Parse(server.URL)
+	New(WithStatePath(path), WithClock(clock)).saveRetryState(host.Host, hostRecord{
+		RetryUntil: clock.now.Add(24 * time.Hour), Streak: 1, UpdatedAt: clock.now,
+	})
+	client := New(WithStatePath(path), WithClock(clock), WithInterval(0))
+	if _, err := client.Get(context.Background(), server.URL); err != nil {
+		t.Fatal(err)
+	}
+	if len(clock.waits) != 1 || clock.waits[0] != maxRetryAfter {
+		t.Fatalf("waits: %v", clock.waits)
 	}
 }
 

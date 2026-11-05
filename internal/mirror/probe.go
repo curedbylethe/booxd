@@ -30,6 +30,9 @@ func probe(ctx context.Context, c *fetch.Client, base string, timeout time.Durat
 	defer cancel()
 	resp, err := c.Get(ctx, strings.TrimRight(base, "/")+probePath)
 	if err != nil {
+		if errors.Is(err, fetch.ErrRateLimited) {
+			return fail, err.Error()
+		}
 		if errors.Is(err, fetch.ErrHostUnhealthy) {
 			return dead, err.Error()
 		}
