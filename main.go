@@ -63,17 +63,13 @@ func loadConfig(flagPath string) (config.Config, error) {
 }
 
 func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient clientFunc) int {
-	if len(args) == 1 && args[0] == "--version" {
-		_, _ = fmt.Fprintf(stdout, "booxd %s (%s/%s)\n", version, runtime.GOOS, runtime.GOARCH)
-		return 0
-	}
 	if len(args) == 0 {
 		_, _ = fmt.Fprintln(stderr, "usage: booxd <search|get|show|tui|serve|version>")
 		return 2
 	}
 
 	switch args[0] {
-	case "version":
+	case "version", "--version":
 		_, _ = fmt.Fprintf(stdout, "booxd %s (%s/%s)\n", version, runtime.GOOS, runtime.GOARCH)
 		return 0
 	case "search":

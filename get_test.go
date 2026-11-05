@@ -369,13 +369,11 @@ func TestGetOpen(t *testing.T) {
 			}
 			if tc.failure != nil {
 				wantCode = 1
-				message := tc.failure.Error()
+				var wantError string
 				if runtime.GOOS == "android" && errors.Is(tc.failure, exec.ErrNotFound) {
-					message = "termux-open not found; install termux-tools"
-				}
-				wantError := fmt.Sprintf("booxd: saved file %s but cannot open it: %s\n", path, message)
-				if runtime.GOOS == "android" && errors.Is(tc.failure, exec.ErrNotFound) {
-					wantError = fmt.Sprintf("booxd: cannot open %s: %s\n", path, message)
+					wantError = fmt.Sprintf("booxd: cannot open %s: termux-open not found; install termux-tools\n", path)
+				} else {
+					wantError = fmt.Sprintf("booxd: saved file %s but cannot open it: %s\n", path, tc.failure)
 				}
 				if !strings.HasSuffix(stderr.String(), wantError) {
 					t.Fatalf("stderr=%q want suffix=%q", stderr.String(), wantError)
