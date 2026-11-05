@@ -7,8 +7,8 @@ if (-not $version) {
 if (-not $version) {
     throw 'Could not determine the booxd release version.'
 }
-$tag = $version
 $assetVersion = $version -replace '^v', ''
+$tag = "v$assetVersion"
 $asset = "booxd_${assetVersion}_windows_amd64.zip"
 $base = $env:BOOXD_BASE_URL
 if (-not $base) {
@@ -60,11 +60,11 @@ try {
 
     $pathChanged = $false
     if (-not $overrideDestination) {
-        $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+        $userPath = (Get-Item 'HKCU:\Environment').GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
         $entries = @($userPath -split ';' | Where-Object { $_ })
         if (-not ($entries | Where-Object { [string]::Equals($_, $destination, [StringComparison]::OrdinalIgnoreCase) })) {
             $newPath = (@($entries) + $destination) -join ';'
-            [Environment]::SetEnvironmentVariable('Path', $newPath, 'User')
+            Set-ItemProperty -Path 'HKCU:\Environment' -Name Path -Value $newPath -Type ExpandString
             $pathChanged = $true
         }
         if (-not (($env:Path -split ';') | Where-Object { [string]::Equals($_, $destination, [StringComparison]::OrdinalIgnoreCase) })) {

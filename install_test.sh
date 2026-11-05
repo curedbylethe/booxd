@@ -48,6 +48,28 @@ mode=$(stat -c '%a' "$bin/booxd" 2>/dev/null || stat -f '%Lp' "$bin/booxd")
 [ "$("$bin/booxd" version)" = 'booxd v9.9.9 (linux/amd64)' ] || fail "installed version did not run"
 [ "$(grep -cF 'export PATH="'"$bin"':$PATH"' "$home/.bashrc")" -eq 1 ] || fail "PATH entry was not added exactly once"
 
+cat >"$tmp/fakebin/curl" <<'EOF'
+#!/bin/sh
+url=
+out=
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+		-o) out=$2; shift 2 ;;
+		http*) url=$1; shift ;;
+		*) shift ;;
+	esac
+done
+case "$url" in
+	https://github.com/curedbylethe/booxd/releases/download/v9.9.9/*)
+		cp "$FAKE_RELEASE/${url##*/}" "$out" ;;
+	*) printf 'unexpected release URL: %s\n' "$url" >&2; exit 1 ;;
+esac
+EOF
+chmod +x "$tmp/fakebin/curl"
+pinned=$tmp/pinned-bin
+FAKE_RELEASE=$release PATH=$tmp/fakebin:$PATH HOME=$home SHELL=/bin/bash BOOXD_BASE_URL= BOOXD_VERSION=9.9.9 BOOXD_BIN_DIR=$pinned ./install.sh
+[ -x "$pinned/booxd" ] || fail "version without leading v did not install from the v-prefixed tag"
+
 cp -R "$release" "$tmp/corrupt"
 printf x >>"$tmp/corrupt/booxd_9.9.9_linux_amd64.tar.gz"
 if PATH=$tmp/fakebin:$PATH HOME=$home SHELL=/bin/bash BOOXD_BASE_URL=$tmp/corrupt BOOXD_VERSION=9.9.9 BOOXD_BIN_DIR=$tmp/corrupt-bin ./install.sh >/dev/null 2>&1; then

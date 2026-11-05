@@ -46,7 +46,7 @@ fi
 
 case "$tag" in
 	v*) version=${tag#v} ;;
-	*) version=$tag ;;
+	*) version=$tag; tag=v$version ;;
 esac
 [ -n "$version" ] || fail "release version is empty"
 
