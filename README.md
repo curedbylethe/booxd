@@ -33,9 +33,7 @@ Verify installation:
 booxd version
 ```
 
-```powershell
-booxd version
-```
+Run the same command in PowerShell.
 
 If the installer updates `PATH`, open a new terminal when it says to. Upgrade by running your installer again.
 
@@ -57,6 +55,8 @@ Uninstall on Windows:
 Remove-Item "$env:LOCALAPPDATA\Programs\booxd" -Recurse -Force
 ```
 
+Then remove `%LOCALAPPDATA%\Programs\booxd` from your user `PATH` in Edit environment variables.
+
 See [Termux setup](docs/termux.md) for Boox details. See [CONTRIBUTING.md](CONTRIBUTING.md) to build from source.
 
 ## Quick start
@@ -69,11 +69,7 @@ See [Termux setup](docs/termux.md) for Boox details. See [CONTRIBUTING.md](CONTR
    booxd tui
    ```
 
-   PowerShell:
-
-   ```powershell
-   booxd tui
-   ```
+   Run the same command in PowerShell.
 
 4. Type a title or author, then press `Enter`. Move with `j`/`k`; press `Enter` to view a book.
 5. Or use the CLI:
@@ -163,7 +159,7 @@ per_host_interval = "2s"
 
 | Symptom | Solution |
 | --- | --- |
-| Termux cannot save downloads | Run `termux-setup-storage` and grant permission; set `download_dir` to `$HOME/storage/downloads`. Keep booxd in `$PREFIX/bin`; shared storage such as `/sdcard` is `noexec`. |
+| Termux cannot save downloads | Run `termux-setup-storage` and grant permission. Set the download directory with the command below. Keep booxd in `$PREFIX/bin`; shared storage such as `/sdcard` is `noexec`. |
 | `termux-open` is missing | Run `pkg install termux-tools`. |
 | Android DNS errors | Check `$PREFIX/etc/resolv.conf` for a reachable nameserver; booxd falls back to `8.8.8.8`. |
 | HTTP 429 or slow requests | Wait; booxd respects 429 and allows one in-flight request per host. Use cache; `--no-cache` bypasses it. |
@@ -171,6 +167,10 @@ per_host_interval = "2s"
 | Config error | Check TOML keys, positive durations, absolute mirror URLs, and the selected `BOOXD_CONFIG` file. |
 | TUI needs 80x24 | Enlarge the terminal to at least 80 columns by 24 rows. |
 | Search says `no results` | Empty results exit successfully with code 0. |
+
+```sh
+export BOOXD_DOWNLOAD_DIR="$HOME/storage/downloads"
+```
 
 ## Documentation
 

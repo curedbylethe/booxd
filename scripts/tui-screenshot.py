@@ -2,7 +2,6 @@
 """Capture real booxd TUI search and detail screens through tmux."""
 
 import argparse
-import os
 import re
 import shlex
 import shutil
@@ -104,6 +103,27 @@ def cells(text):
     return rows[:HEIGHT]
 
 
+def result_with_author_and_size(text):
+    formats = {"EPUB", "PDF", "DJVU", "MOBI", "AZW3", "FB2"}
+    rows = cells(text)
+    for index in range((HEIGHT - 2) // 2):
+        y = 2 + index * 2
+        if y >= len(rows):
+            break
+        metadata = "".join(char for char, _, _ in rows[y]).strip()
+        fields = [field.strip() for field in metadata.split(" · ")]
+        size = fields[-1] if fields else ""
+        if (
+            len(fields) >= 3
+            and fields[0]
+            and not fields[0].isdigit()
+            and fields[0].upper() not in formats
+            and re.search(r"\b\d+(?:\.\d+)?\s+(?:KB|MB|GB|TB)\b$", size, re.IGNORECASE)
+        ):
+            return index
+    raise RuntimeError("no visible result has an author and a KB-or-larger size")
+
+
 def render(text, path, font):
     rows = cells(text)
     cell_width = font.getlength("M")
@@ -156,14 +176,18 @@ def main():
         images.mkdir(parents=True, exist_ok=True)
         session = "booxd-shot-" + uuid.uuid4().hex[:8]
         with tempfile.TemporaryDirectory(prefix="booxd-screenshot-") as cache:
-            env = dict(os.environ, BOOXD_CACHE_DIR=cache, TERM="xterm-256color")
             command = "env " + shlex.join([f"BOOXD_CACHE_DIR={cache}", str(binary), "tui", "--mono"])
-            run(["tmux", "new-session", "-d", "-s", session, "-x", str(WIDTH), "-y", str(HEIGHT), command], env=env)
+            run(["tmux", "new-session", "-d", "-s", session, "-x", str(WIDTH), "-y", str(HEIGHT), command])
             try:
                 wait_for_query_screen(session)
                 run(["tmux", "send-keys", "-l", "-t", session, "jane austen"])
                 run(["tmux", "send-keys", "-t", session, "Enter"])
                 results = wait_for_results(session)
+                selected = result_with_author_and_size(results)
+                if selected:
+                    run(["tmux", "send-keys", "-t", session, *("j" for _ in range(selected))])
+                    time.sleep(0.2)
+                    results = capture(session)
                 render(results, images / "tui-search.png", font)
                 run(["tmux", "send-keys", "-t", session, "Enter"])
                 deadline = time.monotonic() + 5
