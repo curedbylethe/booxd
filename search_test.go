@@ -65,10 +65,11 @@ func TestSearchUnparseableCacheIsError(t *testing.T) {
 func TestSearchRefetchesUnparseableFreshCache(t *testing.T) {
 	const body = "<p>Showing 5 results on this page</p>"
 	for _, tc := range []struct {
-		name       string
-		resolveErr error
+		name        string
+		resolveErr  error
+		wantLookups int
 	}{
-		{name: "refetch succeeds"},
+		{name: "refetch succeeds", wantLookups: 1},
 		{name: "refetch fails", resolveErr: errors.New("offline")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -105,11 +106,7 @@ func TestSearchRefetchesUnparseableFreshCache(t *testing.T) {
 					t.Fatalf("stored entry = %#v, exists = %v", entry, ok)
 				}
 			}
-			expectedLookups := 0
-			if tc.resolveErr == nil {
-				expectedLookups = 1
-			}
-			if resolveCalls != 1 || lookupCalls != expectedLookups {
+			if resolveCalls != 1 || lookupCalls != tc.wantLookups {
 				t.Fatalf("resolve calls = %d, lookup calls = %d", resolveCalls, lookupCalls)
 			}
 		})
