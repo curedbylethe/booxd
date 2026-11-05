@@ -2,10 +2,13 @@ package mirror
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -169,5 +172,28 @@ func TestProbeChallengeIsDead(t *testing.T) {
 	defer server.Close()
 	if got, reason := probe(context.Background(), fetch.New(), server.URL, time.Second); got != dead || calls.Load() != 1 {
 		t.Fatalf("outcome = %v, calls = %d (reason %q)", got, calls.Load(), reason)
+	}
+}
+
+func TestProbePersistedRateLimitIsNotDead(t *testing.T) {
+	clock := &probeClock{now: time.Unix(100000, 0)}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("request sent during rate limit")
+	}))
+	defer server.Close()
+	u, _ := url.Parse(server.URL)
+	data, err := json.Marshal(map[string]any{"hosts": map[string]any{u.Host: map[string]any{
+		"retry_until": clock.Now().Add(time.Minute), "streak": 1, "updated_at": clock.Now(),
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "fetch.json")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	client := fetch.New(fetch.WithClock(clock), fetch.WithStatePath(path))
+	if got, reason := probe(context.Background(), client, server.URL, time.Second); got != fail || !strings.Contains(reason, u.Host) {
+		t.Fatalf("outcome = %v, reason = %q", got, reason)
 	}
 }
