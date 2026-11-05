@@ -62,6 +62,60 @@ func TestSearchUnparseableCacheIsError(t *testing.T) {
 	}
 }
 
+func TestSearchRefetchesUnparseableFreshCache(t *testing.T) {
+	const body = "<p>Showing 5 results on this page</p>"
+	for _, tc := range []struct {
+		name       string
+		resolveErr error
+	}{
+		{name: "refetch succeeds"},
+		{name: "refetch fails", resolveErr: errors.New("offline")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := cache.Open(t.TempDir())
+			now := time.Now()
+			if err := store.Put(cache.Entry{Query: "test", Page: 1, Status: 200, FetchedAt: now.Add(-time.Minute), Body: []byte(body)}); err != nil {
+				t.Fatal(err)
+			}
+			resolveCalls, lookupCalls := 0, 0
+			client := fetch.New(fetch.WithLookup(func(context.Context, string) (int, []byte, bool) {
+				lookupCalls++
+				return 200, []byte(card), true
+			}))
+			search := newSearcher(config.Config{}, client, store, func(context.Context, config.Config, string, *fetch.Client) (string, error) {
+				resolveCalls++
+				if tc.resolveErr != nil {
+					return "", tc.resolveErr
+				}
+				return "https://mirror.test", nil
+			}, nil)
+			search.now = func() time.Time { return now }
+
+			outcome, err := search.search(context.Background(), "test", searchOptions{Page: 1, MaxAge: time.Hour})
+			if tc.resolveErr != nil {
+				if err == nil || err.Error() != "parse search: parsed 0 of 5 results" || outcome.Cached {
+					t.Fatalf("outcome = %#v, error = %v", outcome, err)
+				}
+			} else {
+				if err != nil || len(outcome.Books) != 1 || outcome.Cached {
+					t.Fatalf("outcome = %#v, error = %v", outcome, err)
+				}
+				entry, ok := store.Get("test", 1)
+				if !ok || string(entry.Body) != card || !entry.FetchedAt.Equal(now) {
+					t.Fatalf("stored entry = %#v, exists = %v", entry, ok)
+				}
+			}
+			expectedLookups := 0
+			if tc.resolveErr == nil {
+				expectedLookups = 1
+			}
+			if resolveCalls != 1 || lookupCalls != expectedLookups {
+				t.Fatalf("resolve calls = %d, lookup calls = %d", resolveCalls, lookupCalls)
+			}
+		})
+	}
+}
+
 func TestSearchStaleCacheFallback(t *testing.T) {
 	for _, tc := range []struct {
 		name   string

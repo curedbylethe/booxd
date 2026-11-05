@@ -51,10 +51,9 @@ func (s *searcher) search(ctx context.Context, query string, opts searchOptions)
 	age := s.now().Sub(cached.FetchedAt)
 	if hit && age >= 0 && age < opts.MaxAge {
 		books, err := parse.Search(bytes.NewReader(cached.Body))
-		if err != nil {
-			return searchOutcome{Body: cached.Body}, err
+		if err == nil {
+			return searchOutcome{Books: books, Body: cached.Body, Cached: true, Age: age}, nil
 		}
-		return searchOutcome{Books: books, Body: cached.Body, Cached: true, Age: age}, nil
 	}
 	if s.client == nil && s.clientFactory != nil {
 		s.client = s.clientFactory()
