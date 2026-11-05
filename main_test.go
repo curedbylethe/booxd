@@ -166,7 +166,7 @@ func TestSearchCache(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			cacheDir := t.TempDir()
 			configPath := filepath.Join(t.TempDir(), "config.toml")
-			if err := os.WriteFile(configPath, []byte("cache_dir = \""+cacheDir+"\"\n"), 0o600); err != nil {
+			if err := os.WriteFile(configPath, []byte("cache_dir = '"+cacheDir+"'\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			store := cache.Open(filepath.Join(cacheDir, "booxd", "cache"))
@@ -316,6 +316,9 @@ func TestResolveMirrorOverride(t *testing.T) {
 	if err != nil || got != "https://mirror.test" {
 		t.Fatalf("resolveMirror override = %q, %v", got, err)
 	}
+	if _, err := os.UserCacheDir(); err == nil {
+		t.Skip("platform always provides a cache directory")
+	}
 	if _, err := resolveMirror(context.Background(), config.Config{}, "", fetch.New()); err == nil {
 		t.Fatal("discovery succeeded without a user cache directory")
 	}
@@ -377,15 +380,8 @@ func TestRunConfig(t *testing.T) {
 		t.Fatalf("flag config path lost to BOOXD_CONFIG: code=%d stderr=%q", code, stderr.String())
 	}
 
-	defaultHome := t.TempDir()
-	t.Setenv("HOME", defaultHome)
-	defaultPath, err := config.Path()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Dir(defaultPath), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	defaultPath := filepath.Join(t.TempDir(), "config.toml")
+	t.Setenv("BOOXD_CONFIG", defaultPath)
 	if err := os.WriteFile(defaultPath, []byte("user_agent = \"default-path/1\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
