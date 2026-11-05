@@ -10,8 +10,8 @@ compatibility constraints. Different signing keys prevent mixing builds.
 Back up existing Termux data before uninstalling another build.
 
 The F-Droid build targets SDK 28, allowing execution from Termux's private
-directory on Android 10 and later. The bootstrap includes termux-tools;
-running a prebuilt booxd requires no additional Termux packages.
+directory on Android 10 and later. The bootstrap includes `curl` and
+`termux-tools`; installing booxd requires no additional Termux packages.
 
 ## Give Termux shared storage
 
@@ -21,24 +21,18 @@ It creates symlinks under `~/storage`: `~/storage/downloads` points to
 If Android 11 still reports permission denied, revoke and grant Termux's
 storage permission again.
 
-## Put the binary in ~/bin
+## Install booxd
 
-A builder runs `make android` with Go 1.25 or newer in this repository.
-Download the resulting `dist/booxd-android-arm64` onto the Boox using its
-browser or copy it to Downloads. No hosted release artifact is assumed here.
-Shared storage cannot execute this binary; copy it into Termux's private home:
+Install from inside Termux. The installer puts booxd in `$PREFIX/bin`, which is
+already on `PATH`; it does not edit a shell startup file.
 
 ```sh
-mkdir -p ~/bin
-cp ~/storage/downloads/booxd-android-arm64 ~/bin/booxd
-chmod +x ~/bin/booxd
-echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
-. ~/.bashrc
-command -v booxd
+curl -fsSL https://github.com/curedbylethe/booxd/releases/latest/download/install.sh | sh
+booxd version
 ```
 
-Termux's default Bash session reads `~/.bashrc`; new sessions pick up this
-PATH addition. Do not assume `~/bin` is already on PATH.
+`/sdcard` and `/storage/emulated/0` are mounted `noexec`. If a binary is
+downloaded there, copy it into Termux's private storage before running it.
 See [Configuration](../README.md#configuration) for download directory settings.
 
 ## Disable cursor blink
@@ -88,20 +82,15 @@ socket listener, or scheduled job.
 
 ## Verify
 
-Run these on the Boox:
+Run these on the Boox after installation:
 
 ```sh
-command -v booxd
-echo "$TERM"
-command -v termux-open
+booxd version
 booxd search "crime and punishment"
-booxd get --cookies cookies.txt --open BOOK_ID
-cmd package query-activities --brief -a android.intent.action.VIEW -t application/epub+zip
 ```
 
-Expect TERM to be `xterm-256color` and termux-open to be under `$PREFIX/bin`.
-The binary includes terminfo for that terminal. The final Android command lists
-EPUB handlers. Confirm the reader opens the saved book.
+The version line should end in `(android/arm64)`. Search should return results.
+See [Open a book](#open-a-book) to verify NeoReader handoff.
 
 ## Troubleshooting
 

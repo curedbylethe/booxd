@@ -30,6 +30,46 @@ A timeout error names the host, the phase, and the time spent.
 | `booxd serve` | `booxd: serve is not implemented yet` |
 | `booxd version` | Prints the build version and target; `booxd --version` is an alias |
 
+## Install
+
+Release assets cover these platforms:
+
+| OS | Arch | Archive | Install |
+| -- | -- | -- | -- |
+| macOS | arm64, amd64 | `.tar.gz` | `curl -fsSL https://github.com/curedbylethe/booxd/releases/latest/download/install.sh \| sh` |
+| Linux | arm64, amd64 | `.tar.gz` | `curl -fsSL https://github.com/curedbylethe/booxd/releases/latest/download/install.sh \| sh` |
+| Windows | amd64 | `.zip` | `irm https://github.com/curedbylethe/booxd/releases/latest/download/install.ps1 \| iex` |
+| Android (Termux) | arm64 | `.tar.gz` | `curl -fsSL https://github.com/curedbylethe/booxd/releases/latest/download/install.sh \| sh` inside Termux |
+
+Release assets use `booxd_0.1.0_<os>_<arch>.tar.gz` (or `.zip` for Windows) and
+include `SHA256SUMS`. The installer puts `booxd` on `PATH`; on Termux it uses
+`$PREFIX/bin` and edits no shell startup file. Open a new terminal after a desktop
+install adds a PATH entry. Re-run the same command to upgrade. To pin version
+`v0.1.0`, export `BOOXD_VERSION=v0.1.0` before running the Unix installer, or set
+`$env:BOOXD_VERSION='v0.1.0'` in PowerShell. For development, use
+`curl -fsSL https://raw.githubusercontent.com/curedbylethe/booxd/main/install.sh | sh`;
+that script tracks `main`, not a release. The `latest` commands become available
+when the first stable release, `v0.1.0`, is published.
+
+Verify the installed version and target:
+
+```sh
+booxd version
+```
+
+For example, a macOS arm64 install prints `booxd v0.1.0 (darwin/arm64)`.
+
+On macOS, prefer the `curl` installer. A browser-downloaded archive has the
+quarantine attribute, and Gatekeeper blocks its first run; `curl` downloads do
+not get that attribute. Clear it with
+`xattr -d com.apple.quarantine "$HOME/.local/bin/booxd"`.
+
+To uninstall on Unix, remove the binary from the directory printed by the installer
+and remove its single `PATH` line from the startup file it named. In Termux, run
+`rm -f "$PREFIX/bin/booxd"`. On Windows, run
+`Remove-Item "$env:LOCALAPPDATA\Programs\booxd" -Recurse -Force` and remove that
+directory from the user `PATH`.
+
 `booxd search --config PATH` reads `PATH` instead of the default config file.
 The TUI's `--mono` flag disables colour; any non-empty `NO_COLOR` value does the same.
 `booxd search --mirror URL` uses `URL` and skips discovery entirely. Put flags
@@ -72,7 +112,8 @@ cookie domain.
 
 Files go to `download_dir`. The transfer keeps interrupted data in `<name>.part`,
 sends `Range` when resuming, checks the response size against `Content-Length`,
-and renames the completed file atomically. Progress prints whole percentages,
+and renames the completed file into place when finished. The rename is atomic on
+Unix and best-effort on Windows. Progress prints whole percentages,
 one per line on stderr. If the server omits `Content-Length`, `get` skips progress
 and the size check. The configured `request_timeout` bounds the book-page
 request. Download response headers have a 30-second wait limit, but the body
@@ -86,8 +127,9 @@ is missing, `get` prints a clear error on stderr and exits 1; the file remains s
 ## Configuration
 
 The default file is `booxd/config.toml` under the platform config directory:
-`$XDG_CONFIG_HOME` or `$HOME/.config` on Termux, and `$HOME/Library/Application Support`
-on macOS. `--config` and `BOOXD_CONFIG` select another file. A missing default
+`${XDG_CONFIG_HOME:-$HOME/.config}` on Linux and Termux,
+`$HOME/Library/Application Support` on macOS, and `%AppData%` on Windows.
+`--config` and `BOOXD_CONFIG` select another file. A missing default
 file uses defaults; a missing explicitly selected file is an error.
 
 Supported fields are `mirrors` (TOML string array; embedded seeds by default),
@@ -112,14 +154,15 @@ the probe without a cooldown. If every probe fails, the error lists
 each attempted mirror with its failure reason (network error, HTTP status, or
 unrecognized results page). Selection and cooldowns persist in
 `booxd/mirror.json` under `cache_dir`, defaulting to the platform user cache directory: `$XDG_CACHE_HOME` or
-`$HOME/.cache` on Termux, and `$HOME/Library/Caches` on macOS.
+`$HOME/.cache` on Linux and Termux, `$HOME/Library/Caches` on macOS, and
+`%LocalAppData%` on Windows.
 
 429 retry state is keyed by host in `<cache_dir>/booxd/fetch.json`; entries expire after 24 hours.
 
 ## Building
 
-Use Go 1.25 or newer. `make build` produces `dist/booxd` with `CGO_ENABLED=0`.
-`make android` produces `dist/booxd-android-arm64` for Termux on Android arm64.
+Build from source for development. Use Go 1.25 or newer. `make build` produces
+`dist/booxd` with `CGO_ENABLED=0`.
 
 ## Testing and linting
 
