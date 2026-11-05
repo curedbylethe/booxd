@@ -82,6 +82,16 @@ func TestSearchMetadataWithoutAuthor(t *testing.T) {
 	}
 }
 
+func TestSearchLanguageMetadata(t *testing.T) {
+	books, err := Search(bytes.NewReader(fixture(t, "search-language.html")))
+	if err != nil || len(books) != 3 {
+		t.Fatalf("books: %+v, error: %v", books, err)
+	}
+	if books[0].Language != "English" || books[0].Author != "" || books[1].Language != "English, French" || books[2].Language != "" {
+		t.Fatalf("books: %+v", books)
+	}
+}
+
 func TestSearchMissPage(t *testing.T) {
 	books, err := Search(bytes.NewReader(fixture(t, "search-miss.html")))
 	if err != nil || len(books) != 0 {

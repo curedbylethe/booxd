@@ -160,8 +160,15 @@ func parseMetadata(b *Book, value string) {
 	for i := range parts {
 		parts[i] = collapse(parts[i])
 	}
+	for i, p := range parts {
+		if formats[strings.ToUpper(p)] && i == 1 && len(parts) > i+2 && sizePattern.MatchString(parts[i+1]) && year(parts[i+2]) {
+			b.Language = parts[i-1]
+			parts = append(parts[:i-1], parts[i:]...)
+			break
+		}
+	}
 	if len(parts) > 0 && !year(parts[0]) && !sizePattern.MatchString(parts[0]) && !formats[strings.ToUpper(parts[0])] {
-		if !strings.EqualFold(parts[0], "unknown") && !strings.EqualFold(parts[0], "unknown author") {
+		if b.Language == "" && !strings.EqualFold(parts[0], "unknown") && !strings.EqualFold(parts[0], "unknown author") {
 			b.Author = parts[0]
 		}
 		parts = parts[1:]
