@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -30,7 +31,7 @@ func TestRun(t *testing.T) {
 		calls                         int
 		failure, verbose              bool
 	}{
-		{name: "no argument", code: 2, err: "usage: booxd <search|get|show|tui|serve>\n"},
+		{name: "no argument", code: 2, err: "usage: booxd <search|get|show|tui|serve|version>\n"},
 		{name: "unknown", args: []string{"nope"}, code: 2, err: "booxd: unknown command \"nope\"\n"},
 		{name: "no query", args: []string{"search"}, code: 2, err: "usage: booxd search [flags] <query>\n"},
 		{name: "invalid page", args: []string{"search", "--page", "0", "test"}, code: 2, err: "booxd: page must be at least 1\n"},
@@ -91,6 +92,30 @@ func TestRun(t *testing.T) {
 			}
 			if calls != tt.calls || clients != tt.calls || gotURL != tt.url {
 				t.Fatalf("resolver calls = %d, clients = %d, URL = %q; want %d, %d, %q", calls, clients, gotURL, tt.calls, tt.calls, tt.url)
+			}
+		})
+	}
+}
+
+func TestVersion(t *testing.T) {
+	if version != "dev" {
+		t.Fatalf("default version = %q, want dev", version)
+	}
+	oldVersion := version
+	version = "v9.9.9"
+	defer func() { version = oldVersion }()
+
+	for _, arg := range []string{"version", "--version"} {
+		t.Run(arg, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if code := run([]string{arg}, &stdout, &stderr, nil, nil); code != 0 {
+				t.Fatalf("code = %d", code)
+			}
+			if got, want := stdout.String(), "booxd v9.9.9 ("+runtime.GOOS+"/"+runtime.GOARCH+")\n"; got != want {
+				t.Fatalf("stdout = %q, want %q", got, want)
+			}
+			if stderr.Len() != 0 {
+				t.Fatalf("stderr = %q", stderr.String())
 			}
 		})
 	}

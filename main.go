@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -17,6 +18,8 @@ import (
 	"github.com/curedbylethe/booxd/internal/parse"
 	"github.com/curedbylethe/booxd/internal/tui"
 )
+
+var version = "dev"
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, resolveMirror, newFetchClient))
@@ -60,12 +63,19 @@ func loadConfig(flagPath string) (config.Config, error) {
 }
 
 func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient clientFunc) int {
+	if len(args) == 1 && args[0] == "--version" {
+		_, _ = fmt.Fprintf(stdout, "booxd %s (%s/%s)\n", version, runtime.GOOS, runtime.GOARCH)
+		return 0
+	}
 	if len(args) == 0 {
-		_, _ = fmt.Fprintln(stderr, "usage: booxd <search|get|show|tui|serve>")
+		_, _ = fmt.Fprintln(stderr, "usage: booxd <search|get|show|tui|serve|version>")
 		return 2
 	}
 
 	switch args[0] {
+	case "version":
+		_, _ = fmt.Fprintf(stdout, "booxd %s (%s/%s)\n", version, runtime.GOOS, runtime.GOARCH)
+		return 0
 	case "search":
 		flags := flag.NewFlagSet("search", flag.ContinueOnError)
 		flags.SetOutput(stderr)

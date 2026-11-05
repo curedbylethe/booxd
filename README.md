@@ -27,6 +27,7 @@ A timeout error names the host, the phase, and the time spent.
 | `booxd show [--config PATH] [--mirror URL] [--verbose] <id>` | nine labeled metadata lines and download options; all-gated pages print `downloads require a signed-in session`; exit 1 for config, resolve, fetch, status, or parse failure; exit 2 for usage errors |
 | `booxd tui [--mono]` | Interactive search line, result table, local detail pane, and status line; Enter searches or opens details, `j`/`k` or arrows move, `/` edits query, Esc goes back, `?` shows help, and `q` quits outside query entry |
 | `booxd serve` | `booxd: serve is not implemented yet` |
+| `booxd version` | Prints the build version and target; `booxd --version` is an alias |
 
 `booxd search --config PATH` reads `PATH` instead of the default config file.
 The TUI's `--mono` flag disables colour; any non-empty `NO_COLOR` value does the same.
