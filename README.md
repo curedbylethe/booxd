@@ -1,200 +1,181 @@
 # booxd
 
-A terminal client for Anna's Archive, intended for Boox e-readers through Termux.
-This repository is the skeleton for searching, inspecting, and fetching books.
+Search, inspect, and download books from Anna’s Archive with a terminal app built for Boox and Termux.
 
-## Status
+![booxd search results in the terminal](docs/images/tui-search.png)
 
-`search` loads optional configuration from `config.toml`, fetches one results
-page, and prints parsed book records. `show` fetches a book page and prints its
-metadata and download options. `tui` opens an interactive search screen with a
-single-column result list and local detail pane. Each result uses two lines:
-title, then author, year, format, and size. Search supports `--page`, `--dump-html`,
-and a disk cache with a 24-hour TTL. Cached output prints
-`cached <age> ago` on stderr. Parsing lives in `internal/parse` and never accesses
-the network. `get` downloads one book when supplied with a session cookie file.
-`serve` remains a stub: it prints "not implemented yet" and exits 1.
-No arguments prints usage and exits 2; an unknown command also exits 2.
-Requests to a host run one at a time, with at least one second between starts.
-The client waits after a 429 and retries a 5xx twice. Per-host 429 deadlines and streaks persist across restarts in `<cache_dir>/booxd/fetch.json` for 24 hours. `--verbose` logs attempts.
-A timeout error names the host, the phase, and the time spent.
+booxd provides search, book details, gated downloads, and an interactive TUI. It runs in the foreground; `serve` is not implemented. On Android, `get --open` hands a saved file to `termux-open` and Android’s default file handler.
 
-## Commands
+## Installation
 
-| Command | Output today |
-| -- | -- |
-| `booxd search [--config PATH] [--mirror URL] [--page N] [--dump-html PATH] [--no-cache] [--max-age DURATION] <query>` | `mirror: <url>` on stderr when using network; one tab-separated row per book on stdout; cached rows print `cached <age> ago` on stderr; `no results` on stderr and exit 0 for a miss; exit 1 for fetch or parse failure, including a 200 page that reports no result count |
-| `booxd get [--config PATH] [--cookies PATH] [--mirror URL] [--verbose] [--open] <id>` | Uses the supplied session to fetch the book page and first open download option; refuses without `--cookies` and prints the book URL; progress prints whole percentages on stderr; --open opens the finished file with termux-open and a missing command prints one error line; exits 0 when saved/already present, 1 on download or open failure, 2 on usage or missing-session refusal |
-| `booxd show [--config PATH] [--mirror URL] [--verbose] <id>` | nine labeled metadata lines and download options; all-gated pages print `downloads require a signed-in session`; exit 1 for config, resolve, fetch, status, or parse failure; exit 2 for usage errors |
-| `booxd tui [--mono]` | Interactive search line, single-column result list, local detail pane, and status line; Enter searches or opens details, `j`/`k` or arrows move, `/` edits query, Esc goes back, `?` shows help, and `q` quits outside query entry |
-| `booxd serve` | `booxd: serve is not implemented yet` |
-| `booxd version` | Prints the build version and target; `booxd --version` is an alias |
+| Platform | Architecture | Installer |
+| --- | --- | --- |
+| Boox / Android (Termux) | arm64 | `install.sh` |
+| macOS | arm64, amd64 | `install.sh` |
+| Linux | arm64, amd64 | `install.sh` |
+| Windows | amd64 | `install.ps1` |
 
-## Install
+Install on Termux, macOS, or Linux:
 
-Release assets cover these platforms:
+```sh
+curl -fsSL https://github.com/curedbylethe/booxd/releases/latest/download/install.sh | sh
+```
 
-| OS | Arch | Archive | Install |
-| -- | -- | -- | -- |
-| macOS | arm64, amd64 | `.tar.gz` | `curl -fsSL https://github.com/curedbylethe/booxd/releases/latest/download/install.sh \| sh` |
-| Linux | arm64, amd64 | `.tar.gz` | `curl -fsSL https://github.com/curedbylethe/booxd/releases/latest/download/install.sh \| sh` |
-| Windows | amd64 | `.zip` | `irm https://github.com/curedbylethe/booxd/releases/latest/download/install.ps1 \| iex` |
-| Android (Termux) | arm64 | `.tar.gz` | `curl -fsSL https://github.com/curedbylethe/booxd/releases/latest/download/install.sh \| sh` inside Termux |
+Install on Windows PowerShell:
 
-Release assets use `booxd_0.1.0_<os>_<arch>.tar.gz` (or `.zip` for Windows) and
-include `SHA256SUMS`. The installer puts `booxd` on `PATH`; on Termux it uses
-`$PREFIX/bin` and edits no shell startup file. Open a new terminal after a desktop
-install adds a PATH entry. Re-run the same command to upgrade. To pin version
-`v0.1.0`, export `BOOXD_VERSION=v0.1.0` before running the Unix installer, or set
-`$env:BOOXD_VERSION='v0.1.0'` in PowerShell. For development, use
-`curl -fsSL https://raw.githubusercontent.com/curedbylethe/booxd/main/install.sh | sh`;
-that script tracks `main`, not a release. The `latest` commands become available
-when the first stable release, `v0.1.0`, is published.
+```powershell
+irm https://github.com/curedbylethe/booxd/releases/latest/download/install.ps1 | iex
+```
 
-Verify the installed version and target:
+Verify installation:
 
 ```sh
 booxd version
 ```
 
-For example, a macOS arm64 install prints `booxd v0.1.0 (darwin/arm64)`.
+```powershell
+booxd version
+```
 
-On macOS, prefer the `curl` installer. A browser-downloaded archive has the
-quarantine attribute, and Gatekeeper blocks its first run; `curl` downloads do
-not get that attribute. Clear it with
-`xattr -d com.apple.quarantine "$HOME/.local/bin/booxd"`.
+If the installer updates `PATH`, open a new terminal when it says to. Upgrade by running your installer again.
 
-To uninstall on Unix, remove the binary from the directory printed by the installer
-and remove its single `PATH` line from the startup file it named. In Termux, run
-`rm -f "$PREFIX/bin/booxd"`. On Windows, run
-`Remove-Item "$env:LOCALAPPDATA\Programs\booxd" -Recurse -Force` and remove that
-directory from the user `PATH`.
+Uninstall on Termux:
 
-`booxd search --config PATH` reads `PATH` instead of the default config file.
-The TUI's `--mono` flag disables colour; any non-empty `NO_COLOR` value does the same.
-`booxd search --mirror URL` uses `URL` and skips discovery entirely. Put flags
-before query arguments; multiple words are joined with spaces. Page defaults to 1.
-`--dump-html PATH` writes the raw response body before parsing, or the cached body
-when search serves from cache. A missing query or
-page below 1 exits 2; `booxd search -h` shows search usage and exits 2.
-The query cache lives at `<cache_dir>/booxd/cache`; `--no-cache` skips reads and
-`--max-age DURATION` overrides the default `24h` freshness window. Search refetches
-fresh cached pages that fail parsing; if mirror resolution or fetching fails, it
-serves the last parseable cached page with its age marker. Cache entries older
-than 30 days are swept at search startup.
-`booxd search --verbose` logs host, status, and wait for each attempt to stderr.
-It also reports waits before they begin.
+```sh
+rm -f "$PREFIX/bin/booxd"
+```
 
-## Show
+Uninstall on macOS or Linux:
 
-`booxd show <id>` fetches `/books/<id>`; `booxd show <id>-<slug>` fetches the
-slug path as given. It prints title, author, publisher, year, language, format,
-size, ISBN, and pages. Missing fields print `-`. Open download options are
-listed; gated options carry ` (requires signed-in session)`. If every option is
-gated, it prints `downloads require a signed-in session`.
+```sh
+rm -f "$HOME/.local/bin/booxd"
+```
 
-Successful detail pages are cached for 24 hours under
-`<cache_dir>/booxd/cache`, keyed by `book:<id>`. A fresh cache hit makes no
-request and prints no `mirror:` line. A stale entry is fetched again. `show`
-does not use or obtain a cookie; it reports the account gate and exits 0.
+Uninstall on Windows:
 
-## Get
+```powershell
+Remove-Item "$env:LOCALAPPDATA\Programs\booxd" -Recurse -Force
+```
 
-`booxd get --cookies cookies.txt <id>` loads a Netscape cookie file and reuses
-the session for the fresh book-page request and the first open download option.
-The page is never read from or written to the cache. Without `--cookies`, `get`
-resolves the mirror, prints the book URL, explains that a signed-in session is
-needed, and exits 2. A gated page or a 401, 403, or 407 stops with one error; `get`
-does not try another download option.
-If the cookie file has no cookies for the resolved mirror host, `get` reports
-that mismatch and suggests `--mirror` so you can select a mirror matching the
-cookie domain.
+See [Termux setup](docs/termux.md) for Boox details. See [CONTRIBUTING.md](CONTRIBUTING.md) to build from source.
 
-Files go to `download_dir`. The transfer keeps interrupted data in `<name>.part`,
-sends `Range` when resuming, checks the response size against `Content-Length`,
-and renames the completed file into place when finished. The rename is atomic on
-Unix and best-effort on Windows. Progress prints whole percentages,
-one per line on stderr. If the server omits `Content-Length`, `get` skips progress
-and the size check. The configured `request_timeout` bounds the book-page
-request. Download response headers have a 30-second wait limit, but the body
-transfer has no overall timeout. Existing files are kept and reported as already
-downloaded.
+## Quick start
 
-In Termux, `--open` runs `termux-open` after saving the file or finding it already
-downloaded. Android opens the default handler for that file type. If the command
-is missing, `get` prints a clear error on stderr and exits 1; the file remains saved.
+1. Install booxd with the command above.
+2. Optionally create a TOML config; see [Configuration](#configuration).
+3. Launch the TUI:
+
+   ```sh
+   booxd tui
+   ```
+
+   PowerShell:
+
+   ```powershell
+   booxd tui
+   ```
+
+4. Type a title or author, then press `Enter`. Move with `j`/`k`; press `Enter` to view a book.
+5. Or use the CLI:
+
+   ```sh
+   booxd search "jane austen"
+   booxd show BOOK_ID
+   booxd get --cookies cookies.txt --open BOOK_ID
+   ```
+
+`get` needs a Netscape cookie file from a signed-in session; booxd never obtains one. `--open` works on Termux / Android only.
+
+![booxd book details in the terminal](docs/images/tui-detail.png)
+
+*Book details shown in the TUI.*
+
+## Controls
+
+| Key | Action | Context |
+| --- | --- | --- |
+| `Ctrl-C` | Quit | Anywhere |
+| `?` | Toggle help | Results or details; `?` or `Esc` closes help |
+| `Enter` | Search or open selected book | Query or results |
+| `Esc` | Go back | Query, results, details |
+| `Backspace`, `Delete` | Edit query | Query |
+| `Left`, `Right`, `Home`, `End` | Move caret | Query |
+| `Up`, `Down`, `j`, `k` | Move selection | Results |
+| `/` | Edit query | Results or details |
+| `q` | Quit | Results or details |
+
+## CLI reference
+
+Flags go before the search query. `tui` reads config from `BOOXD_CONFIG`; it has no `--config`, `--mirror`, or `--verbose` flags.
+
+| Command | Arguments and flags | Purpose |
+| --- | --- | --- |
+| `booxd search` | `--config`, `--mirror`, `--page` (1), `--dump-html`, `--max-age` (24h), `--no-cache`, `--verbose`; query | Search the catalog. `--mirror` skips discovery; `--dump-html` writes raw or cached HTML. |
+| `booxd show` | `--config`, `--mirror`, `--verbose`; one book ID | Show metadata and download options. |
+| `booxd get` | `--config`, `--cookies`, `--mirror`, `--open`, `--verbose`; one book ID | Download with a supplied Netscape cookie jar. `--open` invokes `termux-open` on Android. |
+| `booxd tui` | `--mono` | Open interactive search; `--mono` selects monochrome theme. |
+| `booxd version`, `booxd --version` | None | Print version and target. |
+| `booxd serve` | None | Not implemented; exits 1. |
+
+```sh
+booxd search --page 2 "jane austen"
+booxd show BOOK_ID
+booxd get --cookies cookies.txt BOOK_ID
+```
+
+| Exit code | Meaning |
+| --- | --- |
+| `0` | Success or no search results |
+| `1` | Runtime failure |
+| `2` | Usage error or missing download session |
 
 ## Configuration
 
-The default file is `booxd/config.toml` under the platform config directory:
-`${XDG_CONFIG_HOME:-$HOME/.config}` on Linux and Termux,
-`$HOME/Library/Application Support` on macOS, and `%AppData%` on Windows.
-`--config` and `BOOXD_CONFIG` select another file. A missing default
-file uses defaults; a missing explicitly selected file is an error.
+Config loads from `booxd/config.toml` under the OS config directory. Flags override environment variables, which override the file and compiled defaults. Paths must be absolute; `~` and `$HOME` are not expanded.
 
-Supported fields are `mirrors` (TOML string array; embedded seeds by default),
-`download_dir` (`$HOME/Downloads`), `cache_dir` (platform cache directory),
-`proxy` (empty), `user_agent` (`booxd/0.1`), `request_timeout` (`30s`), and
-`per_host_interval` (`1s`). Durations use Go duration strings. Proxy accepts
-`http`, `https`, and `socks5` URLs. Termux users may set `download_dir` to
-`$HOME/storage/downloads` after enabling shared storage.
+| Option | Default | Description |
+| --- | --- | --- |
+| `mirrors` | Embedded seeds | Preferred absolute `http`/`https` base URLs, without userinfo. |
+| `download_dir` | `$HOME/Downloads` | Download destination. |
+| `cache_dir` | OS user cache directory | Cache root; booxd stores data in its `booxd` subdirectory. |
+| `proxy` | Empty | `http`, `https`, or `socks5` proxy URL. |
+| `user_agent` | `booxd/0.1` | HTTP User-Agent. |
+| `request_timeout` | `30s` | Positive Go duration for requests. |
+| `per_host_interval` | `1s` | Minimum time between request starts to one host. |
 
-An empty `mirrors` list keeps the embedded seeds. Environment overrides use
-`BOOXD_MIRRORS` (comma-separated), `BOOXD_DOWNLOAD_DIR`, `BOOXD_CACHE_DIR`,
-`BOOXD_PROXY`, `BOOXD_USER_AGENT`,
-`BOOXD_REQUEST_TIMEOUT`, and `BOOXD_PER_HOST_INTERVAL`. Precedence is flag,
-environment, file, then compiled default. A malformed file value prints one
-line naming the file and field; a malformed environment variable names the
-variable.
+Environment: `BOOXD_CONFIG`, `BOOXD_MIRRORS`, `BOOXD_DOWNLOAD_DIR`, `BOOXD_CACHE_DIR`, `BOOXD_PROXY`, `BOOXD_USER_AGENT`, `BOOXD_REQUEST_TIMEOUT`, `BOOXD_PER_HOST_INTERVAL`.
 
-Discovery probes embedded seeds in order with a five-second timeout per seed. The
-first passing mirror is reused for 24 hours without probing. A 403, 404, or timeout
-puts that seed on cooldown for one hour. A seed still waiting out a 429 fails
-the probe without a cooldown. If every probe fails, the error lists
-each attempted mirror with its failure reason (network error, HTTP status, or
-unrecognized results page). Selection and cooldowns persist in
-`booxd/mirror.json` under `cache_dir`, defaulting to the platform user cache directory: `$XDG_CACHE_HOME` or
-`$HOME/.cache` on Linux and Termux, `$HOME/Library/Caches` on macOS, and
-`%LocalAppData%` on Windows.
+| Platform | Config file | Cache |
+| --- | --- | --- |
+| macOS | `$HOME/Library/Application Support/booxd/config.toml` | `$HOME/Library/Caches/booxd/cache` |
+| Linux / Termux | `$XDG_CONFIG_HOME/booxd/config.toml` or `$HOME/.config/booxd/config.toml` | `$XDG_CACHE_HOME/booxd/cache` or `$HOME/.cache/booxd/cache` |
+| Windows | `%AppData%\booxd\config.toml` | `%LocalAppData%\booxd\cache` |
 
-429 retry state is keyed by host in `<cache_dir>/booxd/fetch.json`; entries expire after 24 hours.
+Example:
 
-## Building
-
-Build from source for development. Use Go 1.25 or newer. `make build` produces
-`dist/booxd` with `CGO_ENABLED=0`.
-
-## Testing and linting
-
-Run `make test`, `make vet`, or `make lint` separately. `make ci` runs build, vet,
-test, and lint. Install the linter first:
-
-```sh
-go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
+```toml
+download_dir = "/home/you/Downloads"
+request_timeout = "45s"
+per_host_interval = "2s"
 ```
 
-Ensure Go's binary installation directory is on `PATH`.
+## Troubleshooting
 
-## Layout
-
-Implemented packages:
-
-- `internal/config`: config path, defaults, TOML loading, and environment overrides.
-- `internal/mirror`: mirror seeds, probing, selected-mirror persistence, and cooldown.
-- `internal/fetch`: the shared HTTP client, streaming responses, cookie jar, per-host throttling, persisted 429 state, retry/backoff, and cache lookup. On Android, DNS uses the first valid nameserver IP in `$PREFIX/etc/resolv.conf` (default prefix `/data/data/com.termux/files/usr`), falling back to `8.8.8.8` if the file is missing or has no valid nameserver.
-- `internal/cache`: disk query cache with normalized keys, atomic JSON writes, TTL reads, and expiry sweep.
-- `internal/parse`: search and detail HTML into book metadata and download
-  options, without network access.
-- `internal/tui`: tcell input, local book navigation, and deliberate full-frame
-  redraws; search runs through an injected function.
-
-- `internal/down`: Netscape cookie loading, gated downloads, `.part` resume, size checks, progress lines, bounded redirects, and atomic renames using fetch.
+| Symptom | Solution |
+| --- | --- |
+| Termux cannot save downloads | Run `termux-setup-storage` and grant permission; set `download_dir` to `$HOME/storage/downloads`. Keep booxd in `$PREFIX/bin`; shared storage such as `/sdcard` is `noexec`. |
+| `termux-open` is missing | Run `pkg install termux-tools`. |
+| Android DNS errors | Check `$PREFIX/etc/resolv.conf` for a reachable nameserver; booxd falls back to `8.8.8.8`. |
+| HTTP 429 or slow requests | Wait; booxd respects 429 and allows one in-flight request per host. Use cache; `--no-cache` bypasses it. |
+| Cookie / mirror mismatch | Use a cookie file for the same site as the mirror. `get` skips cache. |
+| Config error | Check TOML keys, positive durations, absolute mirror URLs, and the selected `BOOXD_CONFIG` file. |
+| TUI needs 80x24 | Enlarge the terminal to at least 80 columns by 24 rows. |
+| Search says `no results` | Empty results exit successfully with code 0. |
 
 ## Documentation
 
-- [docs/eink.md](docs/eink.md): the e-ink redraw policy and the reason for each rule.
-- [docs/termux.md](docs/termux.md): installing booxd in Termux on the Boox, and why there is no daemon.
-
-See [AGENTS.md](AGENTS.md) for repository constraints and
-[project conventions](https://linear.app/curedbylethe/document/booxd-project-conventions-bf3f21ac3632)
-for backlog structure.
+- [E-ink redraw rules](docs/eink.md)
+- [Termux / Boox setup](docs/termux.md)
+- [Contributor guide](CONTRIBUTING.md)
+- [Repository rules](AGENTS.md)
+- [Project conventions](https://linear.app/curedbylethe/document/booxd-project-conventions-bf3f21ac3632)
