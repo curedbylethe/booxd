@@ -26,22 +26,22 @@ func TestFrameAudit(t *testing.T) {
 	book.URL = "/books/0"
 
 	tests := []struct {
-		name        string
-		width       int
-		height      int
-		model       model
-		selectedRow int
-		minimum     bool
+		name         string
+		width        int
+		height       int
+		model        model
+		selectedRows [2]int
+		minimum      bool
 	}{
-		{name: "results three books", width: 80, height: 24, model: resultFrame(3, 1, 0), selectedRow: 3},
-		{name: "results twenty-two books scrolled", width: 80, height: 24, model: resultFrame(22, 21, 1), selectedRow: 22},
-		{name: "results empty", width: 80, height: 24, model: resultFrame(0, 0, 0), selectedRow: -1},
-		{name: "results error", width: 80, height: 24, model: model{view: stateResults, status: "offline", statusErr: true, height: 24, theme: style}, selectedRow: -1},
-		{name: "detail", width: 80, height: 24, model: model{view: stateDetail, books: []parse.Book{book}, height: 24, theme: style}, selectedRow: -1},
-		{name: "help", width: 80, height: 24, model: model{view: stateResults, help: true, height: 24, theme: style}, selectedRow: -1},
-		{name: "results wide", width: 100, height: 30, model: model{view: stateResults, books: booksForTest(3), height: 30, theme: style}, selectedRow: 2},
-		{name: "below minimum width", width: 79, height: 24, model: model{view: stateResults, height: 24, theme: style}, selectedRow: -1, minimum: true},
-		{name: "below minimum height", width: 80, height: 23, model: model{view: stateResults, height: 23, theme: style}, selectedRow: -1, minimum: true},
+		{name: "results three books", width: 80, height: 24, model: resultFrame(3, 1, 0), selectedRows: [2]int{3, 4}},
+		{name: "results twenty-two books scrolled", width: 80, height: 24, model: resultFrame(22, 21, 11), selectedRows: [2]int{21, 22}},
+		{name: "results empty", width: 80, height: 24, model: resultFrame(0, 0, 0), selectedRows: [2]int{-1, -1}},
+		{name: "results error", width: 80, height: 24, model: model{view: stateResults, status: "offline", statusErr: true, height: 24, theme: style}, selectedRows: [2]int{-1, -1}},
+		{name: "detail", width: 80, height: 24, model: model{view: stateDetail, books: []parse.Book{book}, height: 24, theme: style}, selectedRows: [2]int{-1, -1}},
+		{name: "help", width: 80, height: 24, model: model{view: stateResults, help: true, height: 24, theme: style}, selectedRows: [2]int{-1, -1}},
+		{name: "results wide", width: 100, height: 30, model: model{view: stateResults, books: booksForTest(3), height: 30, theme: style}, selectedRows: [2]int{1, 2}},
+		{name: "below minimum width", width: 79, height: 24, model: model{view: stateResults, height: 24, theme: style}, selectedRows: [2]int{-1, -1}, minimum: true},
+		{name: "below minimum height", width: 80, height: 23, model: model{view: stateResults, height: 23, theme: style}, selectedRows: [2]int{-1, -1}, minimum: true},
 	}
 
 	for _, tt := range tests {
@@ -83,11 +83,29 @@ func TestFrameAudit(t *testing.T) {
 				}
 			}
 
-			if tt.selectedRow >= 0 {
-				for x := 0; x < width; x++ {
-					if got := cells[x+tt.selectedRow*width].Style; got != style.reverse {
-						t.Fatalf("selected row column %d style=%v, want reverse %v", x, got, style.reverse)
+			for _, row := range tt.selectedRows {
+				if row >= 0 {
+					for x := 0; x < width; x++ {
+						if got := cells[x+row*width].Style; got != style.reverse {
+							t.Fatalf("selected row %d column %d style=%v, want reverse %v", row, x, got, style.reverse)
+						}
 					}
+				}
+			}
+
+			if tt.name == "results three books" {
+				row := func(y int) string {
+					var line strings.Builder
+					for x := 0; x < width; x++ {
+						line.WriteString(runesOf(cells[x+y*width]))
+					}
+					return line.String()
+				}
+				if !strings.Contains(row(1), "Title 00") || strings.Contains(row(1), "TITLE") {
+					t.Fatalf("first result title row=%q", row(1))
+				}
+				if got := strings.TrimRight(row(2), " "); got != "Author · 2024 · epub · 1 MB" {
+					t.Fatalf("first result metadata row=%q", got)
 				}
 			}
 

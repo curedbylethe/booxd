@@ -111,7 +111,7 @@ func TestSelectionClampsAndOffsetFollows(t *testing.T) {
 	for i := 0; i < 40; i++ {
 		m, _ = handleKey(m, tcell.NewEventKey(tcell.KeyRune, 'j', tcell.ModNone))
 	}
-	if m.selected != 29 || m.offset != 9 {
+	if m.selected != 29 || m.offset != 19 {
 		t.Fatalf("bottom selection=%d offset=%d", m.selected, m.offset)
 	}
 	for i := 0; i < 40; i++ {
@@ -119,6 +119,14 @@ func TestSelectionClampsAndOffsetFollows(t *testing.T) {
 	}
 	if m.selected != 0 || m.offset != 0 {
 		t.Fatalf("top selection=%d offset=%d", m.selected, m.offset)
+	}
+}
+
+func TestVisibleResults(t *testing.T) {
+	for _, tt := range []struct{ height, want int }{{24, 11}, {30, 14}, {23, 10}, {0, 0}, {1, 0}} {
+		if got := visibleResults(tt.height); got != tt.want {
+			t.Errorf("visibleResults(%d)=%d, want %d", tt.height, got, tt.want)
+		}
 	}
 }
 

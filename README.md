@@ -8,8 +8,9 @@ This repository is the skeleton for searching, inspecting, and fetching books.
 `search` loads optional configuration from `config.toml`, fetches one results
 page, and prints parsed book records. `show` fetches a book page and prints its
 metadata and download options. `tui` opens an interactive search screen with a
-result list and local detail pane. Search supports `--page`, `--dump-html`, and a
-disk cache with a 24-hour TTL. Cached output prints
+single-column result list and local detail pane. Each result uses two lines:
+title, then author, year, format, and size. Search supports `--page`, `--dump-html`,
+and a disk cache with a 24-hour TTL. Cached output prints
 `cached <age> ago` on stderr. Parsing lives in `internal/parse` and never accesses
 the network. `get` downloads one book when supplied with a session cookie file.
 `serve` remains a stub: it prints "not implemented yet" and exits 1.
@@ -25,7 +26,7 @@ A timeout error names the host, the phase, and the time spent.
 | `booxd search [--config PATH] [--mirror URL] [--page N] [--dump-html PATH] [--no-cache] [--max-age DURATION] <query>` | `mirror: <url>` on stderr when using network; one tab-separated row per book on stdout; cached rows print `cached <age> ago` on stderr; `no results` on stderr and exit 0 for a miss; exit 1 for fetch or parse failure, including a 200 page that reports no result count |
 | `booxd get [--config PATH] [--cookies PATH] [--mirror URL] [--verbose] [--open] <id>` | Uses the supplied session to fetch the book page and first open download option; refuses without `--cookies` and prints the book URL; progress prints whole percentages on stderr; --open opens the finished file with termux-open and a missing command prints one error line; exits 0 when saved/already present, 1 on download or open failure, 2 on usage or missing-session refusal |
 | `booxd show [--config PATH] [--mirror URL] [--verbose] <id>` | nine labeled metadata lines and download options; all-gated pages print `downloads require a signed-in session`; exit 1 for config, resolve, fetch, status, or parse failure; exit 2 for usage errors |
-| `booxd tui [--mono]` | Interactive search line, result table, local detail pane, and status line; Enter searches or opens details, `j`/`k` or arrows move, `/` edits query, Esc goes back, `?` shows help, and `q` quits outside query entry |
+| `booxd tui [--mono]` | Interactive search line, single-column result list, local detail pane, and status line; Enter searches or opens details, `j`/`k` or arrows move, `/` edits query, Esc goes back, `?` shows help, and `q` quits outside query entry |
 | `booxd serve` | `booxd: serve is not implemented yet` |
 
 `booxd search --config PATH` reads `PATH` instead of the default config file.

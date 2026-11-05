@@ -140,7 +140,7 @@ func handleKey(m model, ev *tcell.EventKey) (model, action) {
 		}
 		m.selected = max(0, min(m.selected, len(m.books)-1))
 		oldOffset := m.offset
-		m.offset = visibleOffset(m.selected, m.offset, m.height-3, len(m.books))
+		m.offset = visibleOffset(m.selected, m.offset, visibleResults(m.height), len(m.books))
 		if m.selected != oldSelected || m.offset != oldOffset {
 			return m, action{dirty: true}
 		}
@@ -202,4 +202,8 @@ func visibleOffset(selected, offset, visible, count int) int {
 		return 0
 	}
 	return offset
+}
+
+func visibleResults(height int) int {
+	return max(0, (height-2)/2)
 }
