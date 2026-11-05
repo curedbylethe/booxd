@@ -65,9 +65,18 @@ try {
         if (-not ($entries | Where-Object { [string]::Equals($_, $destination, [StringComparison]::OrdinalIgnoreCase) })) {
             $newPath = (@($entries) + $destination) -join ';'
             Set-ItemProperty -Path 'HKCU:\Environment' -Name Path -Value $newPath -Type ExpandString
-            $refreshName = "BOOXD_PATH_REFRESH_$([Guid]::NewGuid().ToString('N'))"
-            [Environment]::SetEnvironmentVariable($refreshName, '1', 'User')
-            [Environment]::SetEnvironmentVariable($refreshName, '', 'User')
+            if (-not ('BooxdPathChangeNotifier' -as [type])) {
+                Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class BooxdPathChangeNotifier {
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, IntPtr wParam, string lParam, uint flags, uint timeout, out IntPtr result);
+}
+'@
+            }
+            $result = [IntPtr]::Zero
+            [void][BooxdPathChangeNotifier]::SendMessageTimeout([IntPtr]0xffff, 0x001A, [IntPtr]::Zero, 'Environment', 0x0002, 5000, [ref]$result)
             $pathChanged = $true
         }
         if (-not (($env:Path -split ';') | Where-Object { [string]::Equals($_, $destination, [StringComparison]::OrdinalIgnoreCase) })) {
