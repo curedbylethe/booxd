@@ -17,6 +17,10 @@ import (
 func offerOptions(t *testing.T, client *fetch.Client, store *cache.Store, in string) (Options, *bytes.Buffer) {
 	t.Helper()
 	out := &bytes.Buffer{}
+	// The prompt path is a Unix one; the Windows notice has its own test.
+	previous := manualUpdatePlatform
+	manualUpdatePlatform = false
+	t.Cleanup(func() { manualUpdatePlatform = previous })
 	return Options{
 		Current: "v1.2.3",
 		Client:  client,
@@ -181,13 +185,13 @@ func TestMaybeOfferExecFailureLine(t *testing.T) {
 }
 
 func TestMaybeOfferWindowsNotice(t *testing.T) {
-	previous := manualUpdatePlatform
-	manualUpdatePlatform = true
-	t.Cleanup(func() { manualUpdatePlatform = previous })
-
 	client, calls := releaseServer(t, http.StatusOK, `{"tag_name":"v1.2.4"}`)
 	store := newStore(t)
 	opts, out := offerOptions(t, client, store, "y\n")
+	// offerOptions forces the Unix path; this test wants the Windows notice.
+	previous := manualUpdatePlatform
+	manualUpdatePlatform = true
+	t.Cleanup(func() { manualUpdatePlatform = previous })
 	if err := MaybeOffer(context.Background(), opts); err != nil {
 		t.Fatal(err)
 	}
@@ -198,6 +202,7 @@ func TestMaybeOfferWindowsNotice(t *testing.T) {
 
 	again, quiet := offerOptions(t, client, store, "y\n")
 	again.Now = again.Now.Add(time.Minute)
+	manualUpdatePlatform = true
 	if err := MaybeOffer(context.Background(), again); err != nil {
 		t.Fatal(err)
 	}
