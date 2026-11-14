@@ -201,6 +201,17 @@ func TestDetailOffsetResetsOnEnterAndLeave(t *testing.T) {
 	}
 }
 
+func TestDetailEscapeClearsStatus(t *testing.T) {
+	m := model{view: stateDetail, books: []parse.Book{{ID: "1"}}, description: "text", status: "offline", statusErr: true}
+	got, act := handleKey(m, tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone))
+	if got.view != stateResults || !act.dirty {
+		t.Fatalf("view=%v action=%+v", got.view, act)
+	}
+	if got.status != "" || got.statusErr {
+		t.Fatalf("status=%q err=%v, want cleared", got.status, got.statusErr)
+	}
+}
+
 func TestClampDetailOffsetOnResize(t *testing.T) {
 	var lines []string
 	for i := 0; i < 30; i++ {
