@@ -156,6 +156,8 @@ func handleKey(m model, ev *tcell.EventKey) (model, action) {
 		case tcell.KeyEscape:
 			m.view = stateResults
 			m.detailOffset = 0
+			m.status = ""
+			m.statusErr = false
 			return m, action{dirty: true}
 		case tcell.KeyUp:
 			return scrollDetail(m, -1)
