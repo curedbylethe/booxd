@@ -24,7 +24,7 @@ import (
 var version = "dev"
 
 func main() {
-	offerUpdate(os.Args[1:], os.Stdout, os.Stderr)
+	offerUpdate(os.Args[1:], os.Stderr)
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, resolveMirror, newFetchClient))
 }
 
@@ -38,7 +38,7 @@ func shouldCheckUpdate(args []string) bool {
 
 // offerUpdate runs the startup update flow. Every failure is silent: the
 // requested command must still run and keep its exit status.
-func offerUpdate(args []string, stdout, stderr io.Writer) {
+func offerUpdate(args []string, stderr io.Writer) {
 	if !shouldCheckUpdate(args) {
 		return
 	}
