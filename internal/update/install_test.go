@@ -82,6 +82,24 @@ func tarGz(t *testing.T, names ...string) []byte {
 	return buffer.Bytes()
 }
 
+// hostMember is the archive member and content prefix the running platform
+// installs; the release pipeline ships booxd in a tar.gz and booxd.exe in a zip.
+func hostMember() string {
+	if runtime.GOOS == "windows" {
+		return "booxd.exe"
+	}
+	return "booxd"
+}
+
+// hostArchive builds the archive the running platform downloads.
+func hostArchive(t *testing.T) []byte {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		return zipArchive(t, hostMember())
+	}
+	return tarGz(t, hostMember())
+}
+
 func zipArchive(t *testing.T, names ...string) []byte {
 	t.Helper()
 	var buffer bytes.Buffer
@@ -193,7 +211,7 @@ func hostAsset(t *testing.T) string {
 func sampleOffer() Offer { return Offer{Current: "v1.2.3", Latest: "v1.2.4", Available: true} }
 
 func TestInstall(t *testing.T) {
-	archive := tarGz(t, "booxd")
+	archive := hostArchive(t)
 	asset := hostAsset(t)
 	client, calls := installServer(t, archive, sumsFor(asset, archive))
 	target := installTarget(t, []byte("old binary"))
@@ -208,12 +226,15 @@ func TestInstall(t *testing.T) {
 	if got := calls.Load(); got != 2 {
 		t.Errorf("requests = %d; want 2", got)
 	}
-	assertFile(t, target, "binary booxd", 0o755)
+	assertFile(t, target, "binary "+hostMember(), 0o755)
 	assertNoTemp(t, filepath.Dir(target))
 }
 
 func TestInstallThroughSymlink(t *testing.T) {
-	archive := tarGz(t, "booxd")
+	if runtime.GOOS == "windows" {
+		t.Skip("replacing through a symlink is a Unix install path")
+	}
+	archive := hostArchive(t)
 	asset := hostAsset(t)
 	client, _ := installServer(t, archive, sumsFor(asset, archive))
 	dir := t.TempDir()
@@ -239,11 +260,11 @@ func TestInstallThroughSymlink(t *testing.T) {
 	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
 		t.Fatalf("launcher is no longer a symlink: %v %v", info, err)
 	}
-	assertFile(t, real, "binary booxd", 0o755)
+	assertFile(t, real, "binary "+hostMember(), 0o755)
 }
 
 func TestInstallKeepsOriginalOnBadChecksum(t *testing.T) {
-	archive := tarGz(t, "booxd")
+	archive := hostArchive(t)
 	asset := hostAsset(t)
 	for _, tc := range []struct {
 		name string
@@ -265,7 +286,7 @@ func TestInstallKeepsOriginalOnBadChecksum(t *testing.T) {
 }
 
 func TestInstallFollowsRedirect(t *testing.T) {
-	archive := tarGz(t, "booxd")
+	archive := hostArchive(t)
 	asset := hostAsset(t)
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -292,7 +313,7 @@ func TestInstallFollowsRedirect(t *testing.T) {
 	if got := calls.Load(); got != 4 {
 		t.Errorf("requests = %d; want 4 (two redirects)", got)
 	}
-	assertFile(t, target, "binary booxd", 0o755)
+	assertFile(t, target, "binary "+hostMember(), 0o755)
 }
 
 func TestInstallRejects(t *testing.T) {
