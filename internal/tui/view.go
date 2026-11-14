@@ -100,9 +100,7 @@ func drawDetail(screen tcell.Screen, m model, width, height int) {
 			screen.PutStrStyled(len(label)+1, i, truncate(field.value, width-len(label)-1), m.theme.base)
 		}
 	}
-	if 10 < height-1 {
-		screen.PutStrStyled(0, 10, "description:", m.theme.dim)
-	}
+	screen.PutStrStyled(0, 10, "description:", m.theme.dim)
 	wrapped := wrap(m.description, width)
 	if m.description == "" {
 		wrapped = []string{"-"}
@@ -113,11 +111,7 @@ func drawDetail(screen tcell.Screen, m model, width, height int) {
 		if index >= len(wrapped) {
 			break
 		}
-		y := 11 + i
-		if y >= height-1 {
-			break
-		}
-		screen.PutStrStyled(0, y, truncate(wrapped[index], width), m.theme.base)
+		screen.PutStrStyled(0, 11+i, truncate(wrapped[index], width), m.theme.base)
 	}
 	status := "esc back · j/k scroll · q quit"
 	statusStyle := m.theme.dim

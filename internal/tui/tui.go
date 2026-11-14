@@ -56,8 +56,7 @@ func runScreenWithTheme(ctx context.Context, screen tcell.Screen, search SearchF
 		case *tcell.EventError:
 			return fmt.Errorf("%s", ev.Error())
 		case *tcell.EventResize:
-			width, m.height = screen.Size()
-			m.width = width
+			m.width, m.height = screen.Size()
 			m.offset = visibleOffset(m.selected, m.offset, visibleResults(m.height), len(m.books))
 			m.detailOffset = clampDetailOffset(m, m.detailOffset)
 			screen.Sync()
