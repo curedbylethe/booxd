@@ -58,7 +58,11 @@ func offerUpdate(args []string, stdout, stderr io.Writer) {
 		Disabled: cfg.NoUpdateCheck,
 		In:       os.Stdin,
 		Out:      stderr,
-		IsTTY:    func() bool { return term.IsTerminal(int(os.Stdin.Fd())) },
+		IsTTY: func() bool {
+			// Both ends must be terminals: the prompt is written to stderr, so
+			// a redirected stderr would hide it while the read still blocks.
+			return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stderr.Fd()))
+		},
 		Exec:     update.Restart,
 		Now:      time.Now(),
 	})
