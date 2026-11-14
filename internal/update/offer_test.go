@@ -105,7 +105,7 @@ func TestMaybeOfferDeclineIsRemembered(t *testing.T) {
 }
 
 func TestMaybeOfferInstallsAndRestarts(t *testing.T) {
-	archive := tarGz(t, "booxd")
+	archive := hostArchive(t)
 	asset := hostAsset(t)
 	_, _ = releaseServer(t, http.StatusOK, `{"tag_name":"v1.2.4"}`)
 	downloads, _ := installServer(t, archive, sumsFor(asset, archive))
@@ -131,11 +131,11 @@ func TestMaybeOfferInstallsAndRestarts(t *testing.T) {
 	if out.String() != want {
 		t.Fatalf("output = %q; want %q", out.String(), want)
 	}
-	assertFile(t, target, "binary booxd", 0o755)
+	assertFile(t, target, "binary "+hostMember(), 0o755)
 }
 
 func TestMaybeOfferAfterReplaceIsQuiet(t *testing.T) {
-	archive := tarGz(t, "booxd")
+	archive := hostArchive(t)
 	asset := hostAsset(t)
 	_, _ = releaseServer(t, http.StatusOK, `{"tag_name":"v1.2.4"}`)
 	downloads, _ := installServer(t, archive, sumsFor(asset, archive))
@@ -161,7 +161,7 @@ func TestMaybeOfferAfterReplaceIsQuiet(t *testing.T) {
 }
 
 func TestMaybeOfferInstallFailureLine(t *testing.T) {
-	archive := tarGz(t, "booxd")
+	archive := hostArchive(t)
 	client, _ := releaseServer(t, http.StatusOK, `{"tag_name":"v1.2.4"}`)
 	installServer(t, archive, []byte("0000  other.tar.gz\n"))
 	installTarget(t, []byte("old binary"))
@@ -180,7 +180,7 @@ func TestMaybeOfferInstallFailureLine(t *testing.T) {
 }
 
 func TestMaybeOfferExecFailureLine(t *testing.T) {
-	archive := tarGz(t, "booxd")
+	archive := hostArchive(t)
 	asset := hostAsset(t)
 	client, _ := releaseServer(t, http.StatusOK, `{"tag_name":"v1.2.4"}`)
 	installServer(t, archive, sumsFor(asset, archive))
