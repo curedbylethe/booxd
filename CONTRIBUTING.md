@@ -38,6 +38,7 @@ The CI workflow runs build, vet, tests, installer checks, and lint on Linux. It 
 | `internal/mirror` | Probes mirrors and persists selection and cooldowns. |
 | `internal/parse` | Converts HTML into search records and book details without network access. |
 | `internal/tui` | Runs the tcell screen and local book navigation; the caller supplies search. |
+| `internal/update` | Checks for, downloads, and installs newer releases. |
 
 ## Releases and installer checks
 

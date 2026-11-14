@@ -411,3 +411,24 @@ func TestRunConfig(t *testing.T) {
 		t.Fatalf("mirror flag with config failed: code=%d stderr=%q", code, stderr.String())
 	}
 }
+
+func TestShouldCheckUpdate(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{"no arguments", nil, false},
+		{"empty slice", []string{}, false},
+		{"version", []string{"version"}, false},
+		{"version flag", []string{"--version"}, false},
+		{"search", []string{"search", "test"}, true},
+		{"tui", []string{"tui"}, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldCheckUpdate(tt.args); got != tt.want {
+				t.Fatalf("shouldCheckUpdate(%q) = %v; want %v", tt.args, got, tt.want)
+			}
+		})
+	}
+}

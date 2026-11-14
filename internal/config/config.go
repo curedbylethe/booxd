@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +26,7 @@ type Config struct {
 	UserAgent       string
 	RequestTimeout  time.Duration
 	PerHostInterval time.Duration
+	NoUpdateCheck   bool
 }
 
 // Defaults returns compiled-in settings. Mirror seeds are supplied by the caller.
@@ -56,6 +58,7 @@ type fileConfig struct {
 	UserAgent       *string   `toml:"user_agent"`
 	RequestTimeout  any       `toml:"request_timeout"`
 	PerHostInterval any       `toml:"per_host_interval"`
+	NoUpdateCheck   *bool     `toml:"no_update_check"`
 }
 
 // Load merges base settings, an optional TOML file, then BOOXD_* variables.
@@ -137,6 +140,9 @@ func applyFile(c Config, f fileConfig) (Config, error) {
 		}
 		c.PerHostInterval = v
 	}
+	if f.NoUpdateCheck != nil {
+		c.NoUpdateCheck = *f.NoUpdateCheck
+	}
 	return c, nil
 }
 
@@ -185,6 +191,13 @@ func applyEnvironment(c Config) (Config, error) {
 			}
 			*item.target = v
 		}
+	}
+	if value, ok := os.LookupEnv("BOOXD_NO_UPDATE_CHECK"); ok && value != "" {
+		v, err := strconv.ParseBool(value)
+		if err != nil {
+			return c, fmt.Errorf("BOOXD_NO_UPDATE_CHECK: %w", err)
+		}
+		c.NoUpdateCheck = v
 	}
 	return c, nil
 }

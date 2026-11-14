@@ -35,7 +35,9 @@ booxd version
 
 Run the same command in PowerShell.
 
-If the installer updates `PATH`, open a new terminal when it says to. Upgrade by running your installer again.
+If the installer updates `PATH`, open a new terminal when it says to.
+
+booxd checks for a newer release at most once a day at startup, and only when stdin is a terminal. Answering `y` downloads the archive for the running platform, verifies its checksum, replaces the binary, and restarts booxd with the same arguments. Any other answer continues with the requested command. Set `BOOXD_NO_UPDATE_CHECK` or `no_update_check = true` to disable the check. On Windows, booxd prints the `install.ps1` command instead of replacing itself.
 
 Uninstall on Termux:
 
@@ -139,8 +141,9 @@ Config loads from `booxd/config.toml` under the OS config directory. Flags overr
 | `user_agent` | `booxd/0.1` | HTTP User-Agent. |
 | `request_timeout` | `30s` | Positive Go duration for requests. |
 | `per_host_interval` | `1s` | Minimum time between request starts to one host. |
+| `no_update_check` | `false` | Disable the startup update check. |
 
-Environment: `BOOXD_CONFIG`, `BOOXD_MIRRORS`, `BOOXD_DOWNLOAD_DIR`, `BOOXD_CACHE_DIR`, `BOOXD_PROXY`, `BOOXD_USER_AGENT`, `BOOXD_REQUEST_TIMEOUT`, `BOOXD_PER_HOST_INTERVAL`.
+Environment: `BOOXD_CONFIG`, `BOOXD_MIRRORS`, `BOOXD_DOWNLOAD_DIR`, `BOOXD_CACHE_DIR`, `BOOXD_PROXY`, `BOOXD_USER_AGENT`, `BOOXD_REQUEST_TIMEOUT`, `BOOXD_PER_HOST_INTERVAL`, `BOOXD_NO_UPDATE_CHECK`.
 
 | Platform | Config file | Cache |
 | --- | --- | --- |

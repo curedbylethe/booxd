@@ -13,6 +13,7 @@ import (
 var envNames = []string{
 	"BOOXD_MIRRORS", "BOOXD_DOWNLOAD_DIR", "BOOXD_CACHE_DIR", "BOOXD_PROXY",
 	"BOOXD_USER_AGENT", "BOOXD_REQUEST_TIMEOUT", "BOOXD_PER_HOST_INTERVAL",
+	"BOOXD_NO_UPDATE_CHECK",
 }
 
 func cleanEnv(t *testing.T) {
@@ -42,6 +43,9 @@ func TestDefaults(t *testing.T) {
 	}
 	if c.DownloadDir == "" || c.CacheDir == "" || c.Mirrors != nil || c.Proxy != nil {
 		t.Fatalf("unexpected path or mirror defaults: %+v", c)
+	}
+	if c.NoUpdateCheck {
+		t.Fatalf("update check must be enabled by default: %+v", c)
 	}
 }
 
@@ -78,6 +82,26 @@ func TestLoadPrecedenceAndFields(t *testing.T) {
 	password, _ := c.Proxy.User.Password()
 	if password != "secret" {
 		t.Fatalf("proxy credentials not decoded")
+	}
+}
+
+func TestLoadNoUpdateCheck(t *testing.T) {
+	cleanEnv(t)
+	base := Config{DownloadDir: "/d", CacheDir: "/c", UserAgent: "ua", RequestTimeout: time.Second, PerHostInterval: time.Second}
+	c, err := Load(writeConfig(t, "no_update_check = true\n"), false, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.NoUpdateCheck {
+		t.Fatal("no_update_check = true was not applied")
+	}
+	t.Setenv("BOOXD_NO_UPDATE_CHECK", "false")
+	c, err = Load(writeConfig(t, "no_update_check = true\n"), false, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.NoUpdateCheck {
+		t.Fatal("BOOXD_NO_UPDATE_CHECK=false did not override the file")
 	}
 }
 
@@ -156,5 +180,11 @@ func TestEnvironmentErrorsNameField(t *testing.T) {
 	_, err = Load("", false, Defaults())
 	if err == nil || !strings.Contains(err.Error(), "BOOXD_PROXY") || strings.Contains(err.Error(), "proxy.invalid") {
 		t.Fatalf("proxy error leaked URL or missed field: %v", err)
+	}
+	cleanEnv(t)
+	t.Setenv("BOOXD_NO_UPDATE_CHECK", "yes")
+	_, err = Load("", false, Defaults())
+	if err == nil || !strings.Contains(err.Error(), "BOOXD_NO_UPDATE_CHECK") {
+		t.Fatalf("boolean error missed field: %v", err)
 	}
 }
