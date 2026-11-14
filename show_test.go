@@ -162,6 +162,59 @@ func TestRunShow(t *testing.T) {
 	}
 }
 
+func TestLoadDetail(t *testing.T) {
+	full := showFixture(t, "book-detail.html")
+	search := showFixture(t, "search-hit.html")
+	tests := []struct {
+		name        string
+		seed        bool
+		status      int
+		body        []byte
+		wantErr     string
+		wantLookups int
+		wantResolve int
+	}{
+		{name: "cache hit", seed: true},
+		{name: "status 500", status: 500, wantErr: "status 500", wantLookups: 1, wantResolve: 1},
+		{name: "parse failure", status: 200, body: search, wantErr: "parse detail: no detail table", wantLookups: 1, wantResolve: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := cache.Open(t.TempDir())
+			if tt.seed {
+				if err := store.Put(cache.Entry{Query: "book:24390", Page: 0, Status: http.StatusOK, FetchedAt: time.Now(), Body: full}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			lookups, resolves := 0, 0
+			newClient := func(config.Config, io.Writer, http.CookieJar) *fetch.Client {
+				return fetch.New(fetch.WithLookup(func(context.Context, string) (int, []byte, bool) {
+					lookups++
+					return tt.status, tt.body, true
+				}))
+			}
+			resolve := func(context.Context, config.Config, string, *fetch.Client) (string, error) {
+				resolves++
+				return "https://mirror.test", nil
+			}
+			detail, err := loadDetail(context.Background(), config.Config{}, "24390-slug", "", store, resolve, newClient, nil, nil)
+			if tt.wantErr == "" {
+				if err != nil || detail.Title != "Test" {
+					t.Fatalf("detail=%+v err=%v", detail, err)
+				}
+			} else if err == nil || err.Error() != tt.wantErr {
+				t.Fatalf("err=%v, want %q", err, tt.wantErr)
+			}
+			if lookups != tt.wantLookups || resolves != tt.wantResolve {
+				t.Fatalf("lookups=%d resolves=%d, want %d %d", lookups, resolves, tt.wantLookups, tt.wantResolve)
+			}
+			if _, ok := store.Get("book:24390", 0); ok != tt.seed {
+				t.Fatalf("cache entry present=%t, want %t", ok, tt.seed)
+			}
+		})
+	}
+}
+
 func TestRunShowSlugSharesCacheKey(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("BOOXD_CONFIG", "")

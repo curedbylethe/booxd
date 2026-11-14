@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/curedbylethe/booxd/internal/cache"
+	"github.com/curedbylethe/booxd/internal/config"
 	"github.com/curedbylethe/booxd/internal/parse"
 )
 
@@ -39,62 +41,81 @@ func runShow(args []string, stdout, stderr io.Writer, resolve resolveFunc, newCl
 		_, _ = fmt.Fprintf(stderr, "booxd: invalid book id %q\n", bookID)
 		return 2
 	}
-	id, _, _ := strings.Cut(bookID, "-")
 
 	cfg, err := loadConfig(*configPath)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
 		return 1
 	}
-	now := time.Now()
 	var store *cache.Store
 	if dir, pathErr := cache.Path(cfg.CacheDir); pathErr == nil {
 		store = cache.Open(dir)
 		_ = store.Sweep(cache.SweepAge)
-	}
-	if store != nil {
-		if entry, ok := store.Get("book:"+id, 0); ok && entry.Status == http.StatusOK {
-			age := now.Sub(entry.FetchedAt)
-			if age >= 0 && age < cache.DefaultTTL {
-				if detail, parseErr := parse.DetailPage(bytes.NewReader(entry.Body)); parseErr == nil {
-					renderShow(stdout, detail)
-					return 0
-				}
-			}
-		}
 	}
 
 	var log io.Writer
 	if *verbose {
 		log = stderr
 	}
-	client := newClient(cfg, log, nil)
-	ctx := context.Background()
-	base, err := resolve(ctx, cfg, *override, client)
+	detail, err := loadDetail(context.Background(), cfg, bookID, *override, store, resolve, newClient, log, stderr)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
+		var statusErr statusError
+		if errors.As(err, &statusErr) {
+			_, _ = fmt.Fprintf(stderr, "booxd: show: %s\n", statusErr.Error())
+		} else {
+			_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
+		}
 		return 1
 	}
-	_, _ = fmt.Fprintf(stderr, "mirror: %s\n", base)
+	renderShow(stdout, detail)
+	return 0
+}
+
+// statusError reports a non-200 book page response.
+type statusError struct{ code int }
+
+func (e statusError) Error() string { return fmt.Sprintf("status %d", e.code) }
+
+// loadDetail returns a book detail, reusing the cache before fetching. The
+// cache key drops any slug suffix; the fetch URL keeps the ID as given. log
+// receives fetch verbosity; mirror receives the resolved base URL.
+func loadDetail(ctx context.Context, cfg config.Config, bookID, override string, store *cache.Store, resolve resolveFunc, newClient clientFunc, log, mirror io.Writer) (parse.Detail, error) {
+	id, _, _ := strings.Cut(bookID, "-")
+	now := time.Now()
+	if store != nil {
+		if entry, ok := store.Get("book:"+id, 0); ok && entry.Status == http.StatusOK {
+			age := now.Sub(entry.FetchedAt)
+			if age >= 0 && age < cache.DefaultTTL {
+				if detail, parseErr := parse.DetailPage(bytes.NewReader(entry.Body)); parseErr == nil {
+					return detail, nil
+				}
+			}
+		}
+	}
+
+	client := newClient(cfg, log, nil)
+	base, err := resolve(ctx, cfg, override, client)
+	if err != nil {
+		return parse.Detail{}, err
+	}
+	if mirror != nil {
+		_, _ = fmt.Fprintf(mirror, "mirror: %s\n", base)
+	}
 	response, err := client.Get(ctx, strings.TrimRight(base, "/")+"/books/"+bookID)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
-		return 1
+		return parse.Detail{}, err
 	}
 	if response.StatusCode != http.StatusOK {
-		_, _ = fmt.Fprintf(stderr, "booxd: show: status %d\n", response.StatusCode)
-		return 1
+		return parse.Detail{}, statusError{code: response.StatusCode}
 	}
 	detail, err := parse.DetailPage(bytes.NewReader(response.Body))
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
-		return 1
+		return parse.Detail{}, err
 	}
 	if store != nil {
 		_ = store.Put(cache.Entry{Query: "book:" + id, Page: 0, Status: http.StatusOK, FetchedAt: now, Body: response.Body})
 	}
-	renderShow(stdout, detail)
-	return 0
+	return detail, nil
 }
 
 func renderShow(w io.Writer, detail parse.Detail) {
