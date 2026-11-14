@@ -16,24 +16,29 @@ const (
 )
 
 type model struct {
-	view      viewState
-	input     []rune
-	caret     int
-	query     string
-	books     []parse.Book
-	selected  int
-	offset    int
-	status    string
-	statusErr bool
-	help      bool
-	height    int
-	theme     theme
+	view         viewState
+	input        []rune
+	caret        int
+	query        string
+	books        []parse.Book
+	selected     int
+	offset       int
+	status       string
+	statusErr    bool
+	help         bool
+	description  string
+	detailOffset int
+	width        int
+	height       int
+	hasDetail    bool
+	theme        theme
 }
 
 type action struct {
 	dirty  bool
 	quit   bool
 	search bool
+	detail bool
 }
 
 func handleKey(m model, ev *tcell.EventKey) (model, action) {
@@ -114,7 +119,9 @@ func handleKey(m model, ev *tcell.EventKey) (model, action) {
 		case tcell.KeyEnter:
 			if len(m.books) > 0 {
 				m.view = stateDetail
-				return m, action{dirty: true}
+				m.description = ""
+				m.detailOffset = 0
+				return m, action{dirty: true, detail: m.hasDetail}
 			}
 		case tcell.KeyUp:
 			m.selected--
@@ -148,7 +155,12 @@ func handleKey(m model, ev *tcell.EventKey) (model, action) {
 		switch ev.Key() {
 		case tcell.KeyEscape:
 			m.view = stateResults
+			m.detailOffset = 0
 			return m, action{dirty: true}
+		case tcell.KeyUp:
+			return scrollDetail(m, -1)
+		case tcell.KeyDown:
+			return scrollDetail(m, 1)
 		case tcell.KeyRune:
 			switch ev.Rune() {
 			case '/':
@@ -156,6 +168,10 @@ func handleKey(m model, ev *tcell.EventKey) (model, action) {
 				m.input = []rune(m.query)
 				m.caret = len(m.input)
 				return m, action{dirty: true}
+			case 'j':
+				return scrollDetail(m, 1)
+			case 'k':
+				return scrollDetail(m, -1)
 			case 'q':
 				return m, action{quit: true}
 			case '?':
@@ -165,6 +181,25 @@ func handleKey(m model, ev *tcell.EventKey) (model, action) {
 		}
 	}
 	return m, action{}
+}
+
+// detailBodyRows is the number of lines between the description label and the
+// footer.
+func detailBodyRows(height int) int {
+	return max(0, height-13)
+}
+
+func clampDetailOffset(m model, offset int) int {
+	return max(0, min(offset, max(0, len(wrap(m.description, m.width))-detailBodyRows(m.height))))
+}
+
+func scrollDetail(m model, delta int) (model, action) {
+	offset := clampDetailOffset(m, m.detailOffset+delta)
+	if offset == m.detailOffset {
+		return m, action{}
+	}
+	m.detailOffset = offset
+	return m, action{dirty: true}
 }
 
 func applyResults(m model, books []parse.Book, err error) model {

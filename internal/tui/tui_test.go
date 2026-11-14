@@ -91,23 +91,124 @@ func TestRunScreenKeysDoNotSearchAgain(t *testing.T) {
 	}
 }
 
-func TestRunScreenDetailIsLocal(t *testing.T) {
+func TestRunScreenDetailUsesCallback(t *testing.T) {
 	sim := newSimulation(t, 80, 24)
 	pressRune(sim, 'x')
 	sim.InjectKey(tcell.KeyEnter, 0, tcell.ModNone)
 	sim.InjectKey(tcell.KeyEnter, 0, tcell.ModNone)
 	sim.InjectKey(tcell.KeyRune, 'q', tcell.ModNone)
-	calls := 0
+	searches, details := 0, 0
 	book := parse.Book{ID: "42", Title: "A title", Author: "An author", Year: "2024", Format: "epub", Size: "1 MB", Publisher: "Press", Language: "en", URL: "/books/42"}
-	if err := runScreen(context.Background(), sim, func(context.Context, string) ([]parse.Book, error) {
-		calls++
+	detail := func(context.Context, string) (parse.Detail, error) {
+		details++
+		return parse.Detail{Description: "First line"}, nil
+	}
+	if err := runScreenWithTheme(context.Background(), sim, func(context.Context, string) ([]parse.Book, error) {
+		searches++
 		return []parse.Book{book}, nil
+	}, detail, false); err != nil {
+		t.Fatal(err)
+	}
+	lines, _, _, _ := simLines(sim)
+	if searches != 1 || details != 1 {
+		t.Fatalf("search calls=%d detail calls=%d", searches, details)
+	}
+	if !strings.Contains(lines[0], "title: A title") || !strings.Contains(lines[8], "url: /books/42") {
+		t.Fatalf("detail metadata=%q", lines[:9])
+	}
+	if strings.TrimRight(lines[10], " ") != "description:" || strings.TrimRight(lines[11], " ") != "First line" {
+		t.Fatalf("description rows=%q %q", lines[10], lines[11])
+	}
+	if !strings.Contains(lines[23], "esc back · j/k scroll · q quit") {
+		t.Fatalf("footer=%q", lines[23])
+	}
+}
+
+func TestRunScreenDetailLoadingAndError(t *testing.T) {
+	book := func() []parse.Book {
+		return []parse.Book{{ID: "42", Title: "A title", Author: "An author", Year: "2024", Format: "epub", Size: "1 MB", Publisher: "Press", Language: "en", URL: "/books/42"}}
+	}
+	open := func(sim tcell.SimulationScreen) {
+		pressRune(sim, 'x')
+		sim.InjectKey(tcell.KeyEnter, 0, tcell.ModNone)
+		sim.InjectKey(tcell.KeyEnter, 0, tcell.ModNone)
+		sim.InjectKey(tcell.KeyRune, 'q', tcell.ModNone)
+	}
+
+	loading := newSimulation(t, 80, 24)
+	open(loading)
+	var status string
+	detail := func(context.Context, string) (parse.Detail, error) {
+		lines, _, _, _ := simLines(loading)
+		status = strings.TrimRight(lines[23], " ")
+		return parse.Detail{Description: "First line"}, nil
+	}
+	if err := runScreenWithTheme(context.Background(), loading, func(context.Context, string) ([]parse.Book, error) {
+		return book(), nil
+	}, detail, false); err != nil {
+		t.Fatal(err)
+	}
+	if status != "…" {
+		t.Fatalf("loading status=%q, want %q", status, "…")
+	}
+
+	failing := newSimulation(t, 80, 24)
+	open(failing)
+	err := runScreenWithTheme(context.Background(), failing, func(context.Context, string) ([]parse.Book, error) {
+		return book(), nil
+	}, func(context.Context, string) (parse.Detail, error) {
+		return parse.Detail{}, errors.New("offline")
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines, cells, width, _ := simLines(failing)
+	if !strings.Contains(lines[0], "title: A title") || strings.TrimRight(lines[11], " ") != "-" {
+		t.Fatalf("metadata or fallback lost: %q %q", lines[0], lines[11])
+	}
+	if strings.TrimRight(lines[23], " ") != "offline" {
+		t.Fatalf("error footer=%q", lines[23])
+	}
+	if cells[23*width].Style != newTheme(false).alert {
+		t.Fatalf("error footer style=%v, want alert", cells[23*width].Style)
+	}
+}
+
+func TestRunScreenDetailNilCallbackAndReopen(t *testing.T) {
+	sim := newSimulation(t, 80, 24)
+	pressRune(sim, 'x')
+	sim.InjectKey(tcell.KeyEnter, 0, tcell.ModNone)
+	sim.InjectKey(tcell.KeyEnter, 0, tcell.ModNone)
+	sim.InjectKey(tcell.KeyRune, 'q', tcell.ModNone)
+	if err := runScreen(context.Background(), sim, func(context.Context, string) ([]parse.Book, error) {
+		return []parse.Book{{ID: "42", Title: "A title"}}, nil
 	}); err != nil {
 		t.Fatal(err)
 	}
 	lines, _, _, _ := simLines(sim)
-	if calls != 1 || !strings.Contains(lines[0], "title: A title") || !strings.Contains(lines[8], "url: /books/42") || !strings.Contains(lines[23], "esc back · q quit") {
-		t.Fatalf("calls=%d detail=%q status=%q", calls, lines[:9], lines[23])
+	if strings.TrimRight(lines[11], " ") != "-" || !strings.Contains(lines[23], "esc back · j/k scroll · q quit") {
+		t.Fatalf("nil callback fallback=%q footer=%q", lines[11], lines[23])
+	}
+
+	reopen := newSimulation(t, 80, 24)
+	pressRune(reopen, 'x')
+	reopen.InjectKey(tcell.KeyEnter, 0, tcell.ModNone)
+	reopen.InjectKey(tcell.KeyEnter, 0, tcell.ModNone)
+	reopen.InjectKey(tcell.KeyEscape, 0, tcell.ModNone)
+	reopen.InjectKey(tcell.KeyEnter, 0, tcell.ModNone)
+	reopen.InjectKey(tcell.KeyRune, 'q', tcell.ModNone)
+	calls := 0
+	if err := runScreenWithTheme(context.Background(), reopen, func(context.Context, string) ([]parse.Book, error) {
+		return []parse.Book{{ID: "42", Title: "A title"}}, nil
+	}, func(context.Context, string) (parse.Detail, error) {
+		calls++
+		return parse.Detail{Description: "Again"}, nil
+	}, false); err != nil {
+		t.Fatal(err)
+	}
+	lines, _, _, _ = simLines(reopen)
+	if calls != 2 || strings.TrimRight(lines[11], " ") != "Again" {
+		t.Fatalf("reopen calls=%d row=%q", calls, lines[11])
 	}
 }
 
@@ -391,7 +492,7 @@ func TestRunUsesMonoOption(t *testing.T) {
 }
 
 func runScreen(ctx context.Context, screen tcell.Screen, search SearchFunc) error {
-	return runScreenWithTheme(ctx, screen, search, false)
+	return runScreenWithTheme(ctx, screen, search, nil, false)
 }
 
 type countingScreen struct {

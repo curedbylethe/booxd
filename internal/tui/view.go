@@ -100,7 +100,35 @@ func drawDetail(screen tcell.Screen, m model, width, height int) {
 			screen.PutStrStyled(len(label)+1, i, truncate(field.value, width-len(label)-1), m.theme.base)
 		}
 	}
-	screen.PutStrStyled(0, height-1, "esc back · q quit", m.theme.dim)
+	if 10 < height-1 {
+		screen.PutStrStyled(0, 10, "description:", m.theme.dim)
+	}
+	wrapped := wrap(m.description, width)
+	if m.description == "" {
+		wrapped = []string{"-"}
+	}
+	bodyRows := detailBodyRows(height)
+	for i := 0; i < bodyRows; i++ {
+		index := m.detailOffset + i
+		if index >= len(wrapped) {
+			break
+		}
+		y := 11 + i
+		if y >= height-1 {
+			break
+		}
+		screen.PutStrStyled(0, y, truncate(wrapped[index], width), m.theme.base)
+	}
+	status := "esc back · j/k scroll · q quit"
+	statusStyle := m.theme.dim
+	if m.statusErr {
+		status = m.status
+		statusStyle = m.theme.alert
+	} else if m.status == "…" {
+		status = m.status
+		statusStyle = m.theme.base
+	}
+	screen.PutStrStyled(0, height-1, truncate(status, width), statusStyle)
 }
 
 func drawHelp(screen tcell.Screen, m model, width, height int) {
@@ -141,4 +169,64 @@ func truncate(s string, width int) string {
 		out.WriteString(graphemes.Str())
 	}
 	return out.String() + "…"
+}
+
+// wrap breaks s into lines no wider than width cells. Source newlines stay
+// line breaks, so paragraph blank lines survive. Words break at spaces; a word
+// wider than the line is hard-broken between grapheme clusters.
+func wrap(s string, width int) []string {
+	if width <= 0 {
+		return nil
+	}
+	var lines []string
+	for _, line := range strings.Split(strings.ReplaceAll(s, "\r\n", "\n"), "\n") {
+		words := strings.Fields(line)
+		if len(words) == 0 {
+			lines = append(lines, "")
+			continue
+		}
+		current := ""
+		currentWidth := 0
+		for _, word := range words {
+			for _, chunk := range hardBreak(word, width) {
+				chunkWidth := uniseg.StringWidth(chunk)
+				switch {
+				case currentWidth == 0:
+					current, currentWidth = chunk, chunkWidth
+				case currentWidth+1+chunkWidth <= width:
+					current += " " + chunk
+					currentWidth += 1 + chunkWidth
+				default:
+					lines = append(lines, current)
+					current, currentWidth = chunk, chunkWidth
+				}
+			}
+		}
+		lines = append(lines, current)
+	}
+	return lines
+}
+
+func hardBreak(word string, width int) []string {
+	if uniseg.StringWidth(word) <= width {
+		return []string{word}
+	}
+	var chunks []string
+	graphemes := uniseg.NewGraphemes(word)
+	var b strings.Builder
+	n := 0
+	for graphemes.Next() {
+		w := graphemes.Width()
+		if n+w > width && b.Len() > 0 {
+			chunks = append(chunks, b.String())
+			b.Reset()
+			n = 0
+		}
+		b.WriteString(graphemes.Str())
+		n += w
+	}
+	if b.Len() > 0 {
+		chunks = append(chunks, b.String())
+	}
+	return chunks
 }

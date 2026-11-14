@@ -11,9 +11,13 @@ import (
 // SearchFunc searches one page for query.
 type SearchFunc func(ctx context.Context, query string) ([]parse.Book, error)
 
+// DetailFunc loads one book's detail page.
+type DetailFunc func(ctx context.Context, id string) (parse.Detail, error)
+
 // Options configures the TUI.
 type Options struct {
 	Search SearchFunc
+	Detail DetailFunc
 	Screen tcell.Screen
 	Mono   bool
 }
@@ -35,13 +39,13 @@ func Run(ctx context.Context, opts Options) error {
 		}
 		defer screen.Fini()
 	}
-	return runScreenWithTheme(ctx, screen, opts.Search, opts.Mono)
+	return runScreenWithTheme(ctx, screen, opts.Search, opts.Detail, opts.Mono)
 }
 
-func runScreenWithTheme(ctx context.Context, screen tcell.Screen, search SearchFunc, mono bool) error {
+func runScreenWithTheme(ctx context.Context, screen tcell.Screen, search SearchFunc, detail DetailFunc, mono bool) error {
 	screen.HideCursor()
-	_, height := screen.Size()
-	m := model{view: stateQuery, height: height, theme: newTheme(mono)}
+	width, height := screen.Size()
+	m := model{view: stateQuery, width: width, height: height, hasDetail: detail != nil, theme: newTheme(mono)}
 	paint(screen, m)
 	for {
 		event := screen.PollEvent()
@@ -52,8 +56,10 @@ func runScreenWithTheme(ctx context.Context, screen tcell.Screen, search SearchF
 		case *tcell.EventError:
 			return fmt.Errorf("%s", ev.Error())
 		case *tcell.EventResize:
-			_, m.height = screen.Size()
+			width, m.height = screen.Size()
+			m.width = width
 			m.offset = visibleOffset(m.selected, m.offset, visibleResults(m.height), len(m.books))
+			m.detailOffset = clampDetailOffset(m, m.detailOffset)
 			screen.Sync()
 			paint(screen, m)
 		case *tcell.EventKey:
@@ -68,6 +74,27 @@ func runScreenWithTheme(ctx context.Context, screen tcell.Screen, search SearchF
 				paint(screen, m)
 				books, err := search(ctx, m.query)
 				m = applyResults(m, books, err)
+				paint(screen, m)
+				continue
+			}
+			if act.detail {
+				m.status = "…"
+				m.statusErr = false
+				paint(screen, m)
+				if m.selected < len(m.books) && m.books[m.selected].ID != "" {
+					result, err := detail(ctx, m.books[m.selected].ID)
+					if err != nil {
+						m.status = err.Error()
+						m.statusErr = true
+					} else {
+						m.description = result.Description
+						m.status = ""
+						m.statusErr = false
+					}
+				} else {
+					m.status = ""
+				}
+				m.detailOffset = 0
 				paint(screen, m)
 				continue
 			}

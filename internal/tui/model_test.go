@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -142,6 +143,81 @@ func TestApplyResultsFailureKeepsRows(t *testing.T) {
 	m = applyResults(m, []parse.Book{{ID: "new"}}, errors.New("offline"))
 	if m.books[0].ID != "old" || m.status != "offline" {
 		t.Fatalf("got books=%v status=%q", m.books, m.status)
+	}
+}
+
+func TestDetailScrollClamps(t *testing.T) {
+	var lines []string
+	for i := 0; i < 30; i++ {
+		lines = append(lines, fmt.Sprintf("line %02d", i))
+	}
+	m := model{view: stateDetail, books: []parse.Book{{ID: "1"}}, description: strings.Join(lines, "\n"), width: 80, height: 24}
+	j := tcell.NewEventKey(tcell.KeyRune, 'j', tcell.ModNone)
+	k := tcell.NewEventKey(tcell.KeyRune, 'k', tcell.ModNone)
+	for i := 0; i < 40; i++ {
+		m, _ = handleKey(m, j)
+	}
+	if m.detailOffset != 19 {
+		t.Fatalf("bottom offset=%d, want 19", m.detailOffset)
+	}
+	for i := 0; i < 40; i++ {
+		m, _ = handleKey(m, k)
+	}
+	if m.detailOffset != 0 {
+		t.Fatalf("top offset=%d, want 0", m.detailOffset)
+	}
+	if _, act := handleKey(m, k); act != (action{}) {
+		t.Fatalf("k at top action=%+v, want none", act)
+	}
+	m.detailOffset = 19
+	if _, act := handleKey(m, j); act != (action{}) {
+		t.Fatalf("j at bottom action=%+v, want none", act)
+	}
+}
+
+func TestDetailScrollNoOpWhenDescriptionFits(t *testing.T) {
+	m := model{view: stateDetail, books: []parse.Book{{ID: "1"}}, description: "short", width: 80, height: 24}
+	for _, key := range []*tcell.EventKey{
+		tcell.NewEventKey(tcell.KeyRune, 'j', tcell.ModNone),
+		tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone),
+	} {
+		got, act := handleKey(m, key)
+		if got.detailOffset != 0 || act != (action{}) {
+			t.Fatalf("offset=%d action=%+v, want 0 and none", got.detailOffset, act)
+		}
+	}
+}
+
+func TestDetailOffsetResetsOnEnterAndLeave(t *testing.T) {
+	m := model{view: stateResults, books: []parse.Book{{ID: "1"}}, description: "stale", detailOffset: 5}
+	got, _ := handleKey(m, tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
+	if got.view != stateDetail || got.detailOffset != 0 || got.description != "" {
+		t.Fatalf("enter detail offset=%d description=%q", got.detailOffset, got.description)
+	}
+	m = model{view: stateDetail, books: []parse.Book{{ID: "1"}}, description: "text", detailOffset: 5}
+	got, _ = handleKey(m, tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone))
+	if got.view != stateResults || got.detailOffset != 0 {
+		t.Fatalf("leave detail offset=%d", got.detailOffset)
+	}
+}
+
+func TestClampDetailOffsetOnResize(t *testing.T) {
+	var lines []string
+	for i := 0; i < 30; i++ {
+		lines = append(lines, fmt.Sprintf("line %02d", i))
+	}
+	m := model{view: stateDetail, description: strings.Join(lines, "\n"), width: 80, height: 24, detailOffset: 19}
+	if got := clampDetailOffset(m, m.detailOffset); got != 19 {
+		t.Fatalf("offset at 80x24=%d, want 19", got)
+	}
+	m.height = 30
+	if got := clampDetailOffset(m, m.detailOffset); got != 13 {
+		t.Fatalf("offset after grow=%d, want 13", got)
+	}
+	m.height = 24
+	m.width = 80
+	if got := clampDetailOffset(m, 100); got != 19 {
+		t.Fatalf("excessive offset=%d, want 19", got)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 
 	"github.com/curedbylethe/booxd/internal/parse"
 	"github.com/gdamore/tcell/v2"
+	"github.com/rivo/uniseg"
 )
 
 func TestFrameAudit(t *testing.T) {
@@ -130,6 +131,83 @@ func TestFrameAudit(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestWrap(t *testing.T) {
+	long := strings.Repeat("x", 200)
+	lines := wrap(long, 80)
+	if len(lines) != 3 || len(lines[0]) != 80 || len(lines[1]) != 80 || len(lines[2]) != 40 {
+		t.Fatalf("long word lines=%d widths=%d,%d", len(lines), len(lines[0]), len(lines[1]))
+	}
+	if got := wrap("one two three", 7); len(got) != 2 || got[0] != "one two" || got[1] != "three" {
+		t.Fatalf("space wrap=%q", got)
+	}
+	if got := wrap("a\n\nb", 80); len(got) != 3 || got[0] != "a" || got[1] != "" || got[2] != "b" {
+		t.Fatalf("blank line wrap=%q", got)
+	}
+	cjk := wrap(strings.Repeat("漢", 50), 80)
+	if len(cjk) != 2 || uniseg.StringWidth(cjk[0]) != 80 || uniseg.StringWidth(cjk[1]) != 20 {
+		t.Fatalf("cjk lines=%d widths=%d,%d", len(cjk), uniseg.StringWidth(cjk[0]), uniseg.StringWidth(cjk[1]))
+	}
+	for _, line := range wrap(strings.Repeat("漢字 words ", 30), 80) {
+		if uniseg.StringWidth(line) > 80 {
+			t.Fatalf("line wider than 80: %q", line)
+		}
+	}
+}
+
+func TestDetailLayout(t *testing.T) {
+	style := newTheme(false)
+	book := booksForTest(1)[0]
+	book.Publisher = "Press"
+	book.Language = "en"
+	book.URL = "/books/0"
+	m := model{view: stateDetail, books: []parse.Book{book}, description: "First line\n\nSecond paragraph", width: 80, height: 24, theme: style}
+	screen := newSimulation(t, 80, 24)
+	draw(screen, m)
+	screen.Show()
+	lines, _, _, _ := simLines(screen)
+	want := []string{"title: Title 00", "author: Author", "year: 2024", "format: epub", "size: 1 MB", "publisher: Press", "language: en", "id: 0", "url: /books/0"}
+	for i, prefix := range want {
+		if !strings.HasPrefix(strings.TrimRight(lines[i], " "), prefix) {
+			t.Fatalf("row %d=%q, want prefix %q", i, lines[i], prefix)
+		}
+	}
+	if strings.TrimRight(lines[9], " ") != "" {
+		t.Fatalf("row 9 should be blank: %q", lines[9])
+	}
+	if strings.TrimRight(lines[10], " ") != "description:" {
+		t.Fatalf("label row=%q", lines[10])
+	}
+	if strings.TrimRight(lines[11], " ") != "First line" {
+		t.Fatalf("body row 11=%q", lines[11])
+	}
+	if strings.TrimRight(lines[12], " ") != "" || strings.TrimRight(lines[13], " ") != "Second paragraph" {
+		t.Fatalf("paragraph rows=%q %q", lines[12], lines[13])
+	}
+	if !strings.Contains(lines[23], "esc back · j/k scroll · q quit") {
+		t.Fatalf("footer=%q", lines[23])
+	}
+
+	empty := model{view: stateDetail, books: []parse.Book{book}, width: 80, height: 24, theme: style}
+	screen = newSimulation(t, 80, 24)
+	draw(screen, empty)
+	screen.Show()
+	lines, _, _, _ = simLines(screen)
+	if strings.TrimRight(lines[10], " ") != "description:" || strings.TrimRight(lines[11], " ") != "-" {
+		t.Fatalf("empty description rows=%q %q", lines[10], lines[11])
+	}
+
+	scrolled := empty
+	scrolled.description = strings.Join([]string{"01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13"}, "\n")
+	scrolled.detailOffset = 2
+	screen = newSimulation(t, 80, 24)
+	draw(screen, scrolled)
+	screen.Show()
+	lines, _, _, _ = simLines(screen)
+	if strings.TrimRight(lines[11], " ") != "03" || strings.TrimRight(lines[21], " ") != "13" {
+		t.Fatalf("scrolled rows=%q %q", lines[11], lines[21])
 	}
 }
 
