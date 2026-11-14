@@ -47,6 +47,81 @@ func TestDetailPageFixtures(t *testing.T) {
 	}
 }
 
+const (
+	descriptionFirst  = "A comprehensive update of the leading algorithms text, with new material on matchings in bipartite graphs, online algorithms, machine learning, and other topics."
+	descriptionSecond = "Some books on algorithms are rigorous but incomplete; others cover masses of material but lack rigor. Introduction to Algorithms uniquely combines rigor and comprehensiveness. It covers a broad range of algorithms in depth, yet makes their design and analysis accessible to all levels of readers, with self-contained chapters and algorithms in pseudocode. Since the publication of the first edition, Introduction to Algorithms has become the leading algorithms text in universities worldwide as well as the standard reference for professionals. This fourth edition has been updated throughout."
+	descriptionLast   = "New for the fourth edition\n" +
+		"• New chapters on matchings in bipartite graphs, online algorithms, and machine learning\n" +
+		"• New material on topics including solving recurrence equations, hash tables, potential functions, and suffix arrays\n" +
+		"• 140 new exercises and 22 new problems\n" +
+		"• Reader feedback–informed improvements to old problems\n" +
+		"• Clearer, more personal, and gender-neutral writing style\n" +
+		"• Color added to improve visual presentation\n" +
+		"• Notes, bibliography, and index updated to reflect developments in the field\n" +
+		"• Website with new supplementary material"
+)
+
+func TestDetailPageDescription(t *testing.T) {
+	tests := []struct {
+		name    string
+		page    string
+		want    string
+		first   string
+		last    string
+		minPara int
+	}{
+		{
+			name:    "fixture",
+			page:    string(fixture(t, "book-detail-description.html")),
+			want:    descriptionFirst + "\n\n" + descriptionSecond + "\n\n" + descriptionLast,
+			first:   descriptionFirst,
+			last:    descriptionLast,
+			minPara: 3,
+		},
+		{
+			name: "placeholder only",
+			page: `<div id="book-panel-details"><table><tr><td>Title</td><td>Test</td></tr></table></div>
+			<div id="book-panel-overview"><h3>Record overview</h3>
+			<p class="mb-4 text-[#666]">No long-form description is available for this record in the imported catalog yet.</p></div>`,
+			want: "",
+		},
+		{
+			name: "paragraph markup with link",
+			page: `<div id="book-panel-details"><table><tr><td>Title</td><td>Test</td></tr></table></div>
+			<div id="book-panel-overview"><h3>Record overview</h3>
+			<div class="mb-4 prose prose-sm max-w-none">
+			<p>First paragraph with a <a href="/x">link</a> inside.</p>
+			<p>Second   paragraph.</p></div></div>`,
+			want: "First paragraph with a link inside.\n\nSecond paragraph.",
+		},
+		{
+			name: "no overview",
+			page: `<div id="book-panel-details"><table><tr><td>Title</td><td>Test</td></tr></table></div>`,
+			want: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			detail, err := DetailPage(strings.NewReader(tt.page))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if detail.Description != tt.want {
+				t.Fatalf("description: %q, want %q", detail.Description, tt.want)
+			}
+			if tt.first != "" && !strings.HasPrefix(detail.Description, tt.first+"\n\n") {
+				t.Errorf("first paragraph: %q", detail.Description)
+			}
+			if tt.last != "" && !strings.HasSuffix(detail.Description, tt.last) {
+				t.Errorf("last paragraph: %q", detail.Description)
+			}
+			if n := len(strings.Split(detail.Description, "\n\n")); n < tt.minPara {
+				t.Errorf("got %d paragraphs, want at least %d", n, tt.minPara)
+			}
+		})
+	}
+}
+
 func TestDetailPageMixedDownloads(t *testing.T) {
 	page := `<div id="book-panel-details"><table><tr><td>Record ID</td><td>1</td></tr><tr><td>Title</td><td>Test</td></tr></table></div>
 	<div id="book-panel-downloads">Log in to access downloads<ul>

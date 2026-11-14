@@ -12,6 +12,7 @@ import (
 // Detail contains metadata and download options from a book page.
 type Detail struct {
 	ID, Title, Author, Publisher, Year, Language, Format, Size, ISBN, Pages string
+	Description                                                             string
 	Downloads                                                               []Download
 	LoginWall                                                               bool
 }
@@ -31,7 +32,7 @@ func DetailPage(r io.Reader) (Detail, error) {
 	}
 
 	var detail Detail
-	var detailsPanel, downloadsPanel *html.Node
+	var detailsPanel, downloadsPanel, overviewPanel *html.Node
 	walk(root, func(n *html.Node) {
 		if n.Type != html.ElementNode || n.Data != "div" {
 			return
@@ -44,6 +45,10 @@ func DetailPage(r io.Reader) (Detail, error) {
 		case "book-panel-downloads":
 			if downloadsPanel == nil {
 				downloadsPanel = n
+			}
+		case "book-panel-overview":
+			if overviewPanel == nil {
+				overviewPanel = n
 			}
 		}
 	})
@@ -98,6 +103,7 @@ func DetailPage(r io.Reader) (Detail, error) {
 	if detail.Pages == "0" {
 		detail.Pages = ""
 	}
+	detail.Description = description(overviewPanel)
 
 	if downloadsPanel == nil {
 		return detail, nil
@@ -134,6 +140,77 @@ func DetailPage(r io.Reader) (Detail, error) {
 	detail.LoginWall = strings.Contains(nodeText(downloadsPanel), "Log in to access downloads") &&
 		(len(detail.Downloads) == 0 || allRequireSession(detail.Downloads))
 	return detail, nil
+}
+
+// descriptionPlaceholder is what the catalog renders instead of overview prose.
+const descriptionPlaceholder = "No long-form description is available for this record in the imported catalog yet."
+
+// description returns the overview prose with markup removed, one paragraph per
+// blank-line-separated block and the placeholder treated as no description.
+func description(overview *html.Node) string {
+	if overview == nil {
+		return ""
+	}
+	var prose *html.Node
+	walk(overview, func(n *html.Node) {
+		if prose == nil && n.Type == html.ElementNode && n.Data == "div" && hasClasses(n, []string{"prose", "max-w-none"}) {
+			prose = n
+		}
+	})
+	if prose == nil {
+		return ""
+	}
+	var b strings.Builder
+	blockText(prose, &b)
+	if collapse(b.String()) == descriptionPlaceholder {
+		return ""
+	}
+	return paragraphs(b.String())
+}
+
+var blockTags = map[string]bool{
+	"br": true, "div": true, "h1": true, "h2": true, "h3": true, "h4": true, "h5": true, "h6": true,
+	"li": true, "ol": true, "p": true, "ul": true,
+}
+
+func blockText(n *html.Node, b *strings.Builder) {
+	if n.Type == html.TextNode {
+		b.WriteString(n.Data)
+		return
+	}
+	if n.Type != html.ElementNode {
+		return
+	}
+	block := blockTags[n.Data]
+	if block {
+		b.WriteByte('\n')
+	}
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		blockText(c, b)
+	}
+	if block {
+		b.WriteByte('\n')
+	}
+}
+
+// paragraphs collapses whitespace within each line and separates blocks by a
+// blank line. Bullet lines stay on their own line inside their block.
+func paragraphs(s string) string {
+	var blocks, lines []string
+	for _, line := range strings.Split(strings.ReplaceAll(s, "\r\n", "\n"), "\n") {
+		if line = collapse(line); line == "" {
+			if len(lines) > 0 {
+				blocks = append(blocks, strings.Join(lines, "\n"))
+				lines = nil
+			}
+			continue
+		}
+		lines = append(lines, line)
+	}
+	if len(lines) > 0 {
+		blocks = append(blocks, strings.Join(lines, "\n"))
+	}
+	return strings.Join(blocks, "\n\n")
 }
 
 func accountLink(href string) bool {
