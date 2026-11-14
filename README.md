@@ -130,7 +130,7 @@ booxd get --cookies cookies.txt BOOK_ID
 
 ## Configuration
 
-Config loads from `booxd/config.toml` under the OS config directory. Flags override environment variables, which override the file and compiled defaults. Paths must be absolute; `~` and `$HOME` are not expanded.
+Config loads from `booxd/config.toml` under the OS config directory. Flags override environment variables, which override the file and compiled defaults. Paths must be absolute; `~` and `$HOME` are not expanded. The startup update check runs before flags are parsed, so it reads the default config file and `BOOXD_CONFIG` only; a file selected with `--config` does not affect it.
 
 | Option | Default | Description |
 | --- | --- | --- |
