@@ -62,7 +62,7 @@ func TestCheckZeroCheckedAtIsStale(t *testing.T) {
 	}
 }
 
-func TestCheckFailedLookupPersistsNothing(t *testing.T) {
+func TestCheckFailedLookupRecordsAttempt(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		status int
@@ -73,19 +73,47 @@ func TestCheckFailedLookupPersistsNothing(t *testing.T) {
 		{"empty tag", http.StatusOK, `{"tag_name":""}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			client, _ := releaseServer(t, tc.status, tc.body)
+			client, calls := releaseServer(t, tc.status, tc.body)
 			store := newStore(t)
-			offer, err := Check(context.Background(), client, store, "v1.2.3", time.Unix(1_700_000_000, 0))
+			now := time.Unix(1_700_000_000, 0)
+			offer, err := Check(context.Background(), client, store, "v1.2.3", now)
 			if err == nil {
 				t.Fatalf("offer = %#v, error = nil; want a lookup error", offer)
 			}
-			if offer.Current != "v1.2.3" || offer.Available {
+			if offer.Current != "v1.2.3" || offer.Available || offer.Latest != "" {
 				t.Fatalf("offer = %#v; want current only and no offer", offer)
 			}
-			if _, ok := store.Get(stateKey, 0); ok {
-				t.Fatal("state persisted after a failed lookup")
+			entry, ok := store.Get(stateKey, 0)
+			if !ok {
+				t.Fatal("attempt not recorded; every start would retry the lookup")
+			}
+			if !entry.FetchedAt.Equal(now) {
+				t.Fatalf("check time = %v; want %v", entry.FetchedAt, now)
+			}
+			before := calls.Load()
+			if _, err := Check(context.Background(), client, store, "v1.2.3", now.Add(time.Minute)); err != nil {
+				t.Fatal(err)
+			}
+			if calls.Load() != before {
+				t.Fatalf("requests = %d; want %d inside the check window", calls.Load(), before)
 			}
 		})
+	}
+}
+
+func TestCheckFailedLookupKeepsKnownTag(t *testing.T) {
+	client, _ := releaseServer(t, http.StatusServiceUnavailable, "")
+	store := newStore(t)
+	now := time.Unix(1_700_000_000, 0)
+	if err := saveState(store, state{CheckedAt: now.Add(-2 * CheckTTL), Latest: "v1.2.4", Declined: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Check(context.Background(), client, store, "v1.2.3", now); err == nil {
+		t.Fatal("error = nil; want a lookup error")
+	}
+	stored, ok := loadState(store)
+	if !ok || stored.Latest != "v1.2.4" || !stored.Declined {
+		t.Fatalf("state = %#v, ok = %v; want the known tag and the decline kept", stored, ok)
 	}
 }
 

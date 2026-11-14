@@ -61,12 +61,24 @@ func TestMaybeOfferSkips(t *testing.T) {
 
 func TestMaybeOfferLookupFailure(t *testing.T) {
 	client, calls := releaseServer(t, http.StatusInternalServerError, "")
-	opts, out := offerOptions(t, client, newStore(t), "y\n")
+	store := newStore(t)
+	opts, out := offerOptions(t, client, store, "y\n")
 	if err := MaybeOffer(context.Background(), opts); err != nil {
 		t.Fatal(err)
 	}
 	if out.Len() != 0 || calls.Load() == 0 {
 		t.Fatalf("output = %q, requests = %d; want none and at least one attempt", out.String(), calls.Load())
+	}
+
+	// The failed attempt is cached, so the next start pays no timeout.
+	before := calls.Load()
+	again, quiet := offerOptions(t, client, store, "y\n")
+	again.Now = again.Now.Add(time.Minute)
+	if err := MaybeOffer(context.Background(), again); err != nil {
+		t.Fatal(err)
+	}
+	if quiet.Len() != 0 || calls.Load() != before {
+		t.Fatalf("output = %q, requests = %d; want none, %d", quiet.String(), calls.Load(), before)
 	}
 }
 
