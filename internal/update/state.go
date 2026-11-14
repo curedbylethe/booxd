@@ -41,6 +41,10 @@ func Check(ctx context.Context, client *fetch.Client, store *cache.Store, curren
 	}
 	tag, err := latestTag(ctx, client)
 	if err != nil {
+		// Record the attempt so a bad network costs one timeout a day, not one
+		// per start. Latest keeps its previous value, so nothing is offered.
+		stored.CheckedAt = now
+		_ = saveState(store, stored)
 		return Offer{Current: current}, err
 	}
 	next := state{CheckedAt: now, Latest: tag, Declined: stored.Declined && stored.Latest == tag}
