@@ -14,11 +14,11 @@ The panel is the constraint, not the terminal. A full refresh stays visible for 
 
 ## Keep activity static
 
-**Rule:** Show a static `…` while search runs. Do not animate or add a spinner.
+**Rule:** Show a static `…` while search runs or a book description loads. Do not animate or add a spinner.
 
 **Why:** Extra frames without state changes create visible flashes.
 
-**Guard:** `TestInFlightStatus` and `TestFrameCount`.
+**Guard:** `TestInFlightStatus`, `TestRunScreenDetailLoadingAndError`, and `TestFrameCount`.
 
 ## Hide the terminal cursor
 
@@ -51,6 +51,14 @@ The panel is the constraint, not the terminal. A full refresh stays visible for 
 **Why:** Box edges and partial-width bands can force scrolling and leave trails.
 
 **Guard:** `TestFrameAudit`. The results view is a single full-width column. Each record has a title line and a metadata line for author, year, format, and size; both lines of the selected record reverse across the full width.
+
+## Keep the detail pane fixed
+
+**Rule:** The detail view keeps nine metadata rows on rows 0–8, a blank row 9, the dim `description:` label on row 10, the wrapped description on the eleven rows below it at 80x24, and the status or footer on the last row. `j`/`k` and `Down`/`Up` scroll the description one line; the nine metadata rows never move. An empty description shows `-` on row 11. A description that fits does not scroll.
+
+**Why:** Scrolling the whole panel would hide the metadata and add redraw noise; a fixed body keeps the frame stable on e-ink.
+
+**Guard:** `TestDetailLayout`, `TestDetailScrollClamps`, and `TestWrap`.
 
 ## Check on the device
 

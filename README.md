@@ -71,7 +71,7 @@ See [Termux setup](docs/termux.md) for Boox details. See [CONTRIBUTING.md](CONTR
 
    Run the same command in PowerShell.
 
-4. Type a title or author, then press `Enter`. Move with `j`/`k`; press `Enter` to view a book.
+4. Type a title or author, then press `Enter`. Move with `j`/`k`; press `Enter` to view a book and read its description.
 5. Or use the CLI:
 
    ```sh
@@ -97,6 +97,7 @@ See [Termux setup](docs/termux.md) for Boox details. See [CONTRIBUTING.md](CONTR
 | `Backspace`, `Delete` | Edit query | Query |
 | `Left`, `Right`, `Home`, `End` | Move caret | Query |
 | `Up`, `Down`, `j`, `k` | Move selection | Results |
+| `Up`, `Down`, `j`, `k` | Scroll the description | Details |
 | `/` | Edit query | Results or details |
 | `q` | Quit | Results or details |
 

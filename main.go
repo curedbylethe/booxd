@@ -168,7 +168,11 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 			outcome, err := search.search(ctx, query, searchOptions{Page: 1, MaxAge: cache.DefaultTTL})
 			return outcome.Books, err
 		}
-		if err := tui.Run(context.Background(), tui.Options{Search: searchFunc, Mono: monoEnabled(*mono, os.Getenv("NO_COLOR"))}); err != nil {
+		detailClient := func(config.Config, io.Writer, http.CookieJar) *fetch.Client { return client }
+		detailFunc := func(ctx context.Context, id string) (parse.Detail, error) {
+			return loadDetail(ctx, cfg, id, "", store, resolve, detailClient, nil, nil)
+		}
+		if err := tui.Run(context.Background(), tui.Options{Search: searchFunc, Detail: detailFunc, Mono: monoEnabled(*mono, os.Getenv("NO_COLOR"))}); err != nil {
 			_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
 			return 1
 		}
