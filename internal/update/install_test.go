@@ -166,6 +166,10 @@ func installTarget(t *testing.T, original []byte) string {
 	previous := findExecutable
 	findExecutable = func() (string, error) { return path, nil }
 	t.Cleanup(func() { findExecutable = previous })
+	// The replace path is a Unix one; keep the Windows runner on it too.
+	previousPlatform := manualUpdatePlatform
+	manualUpdatePlatform = false
+	t.Cleanup(func() { manualUpdatePlatform = previousPlatform })
 	return path
 }
 
@@ -373,8 +377,10 @@ func assertFile(t *testing.T, path, want string, mode os.FileMode) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := info.Mode().Perm(); got != mode {
-		t.Errorf("%s mode = %o; want %o", path, got, mode)
+	if runtime.GOOS != "windows" {
+		if got := info.Mode().Perm(); got != mode {
+			t.Errorf("%s mode = %o; want %o", path, got, mode)
+		}
 	}
 }
 
