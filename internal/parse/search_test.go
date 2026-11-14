@@ -157,3 +157,20 @@ func TestSearchCardWithoutFields(t *testing.T) {
 		t.Fatalf("books: %+v, error: %v", books, err)
 	}
 }
+
+func TestSearchLivePage(t *testing.T) {
+	books, err := Search(bytes.NewReader(fixture(t, "search-downloads.html")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(books) != 20 {
+		t.Fatalf("books=%d, want 20", len(books))
+	}
+	first := books[0]
+	if first.ID != "2977300" || first.Title != "Crime And Punishment" || first.Year != "2011" || first.Format != "EPUB" || first.Size != "1 B" {
+		t.Fatalf("first book=%+v", first)
+	}
+	if first.URL != "https://annas-archive.is/books/2977300-crime-and-punishment-2977300" {
+		t.Fatalf("url=%q", first.URL)
+	}
+}
