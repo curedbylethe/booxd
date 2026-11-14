@@ -86,6 +86,13 @@ func TestDetailPageDescription(t *testing.T) {
 			want: "",
 		},
 		{
+			name: "placeholder inside prose block",
+			page: `<div id="book-panel-details"><table><tr><td>Title</td><td>Test</td></tr></table></div>
+			<div id="book-panel-overview"><h3>Record overview</h3>
+			<div class="mb-4 prose prose-sm max-w-none">No long-form description is available for this record in the imported catalog yet.</div></div>`,
+			want: "",
+		},
+		{
 			name: "paragraph markup with link",
 			page: `<div id="book-panel-details"><table><tr><td>Title</td><td>Test</td></tr></table></div>
 			<div id="book-panel-overview"><h3>Record overview</h3>
