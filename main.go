@@ -17,12 +17,51 @@ import (
 	"github.com/curedbylethe/booxd/internal/mirror"
 	"github.com/curedbylethe/booxd/internal/parse"
 	"github.com/curedbylethe/booxd/internal/tui"
+	"github.com/curedbylethe/booxd/internal/update"
+	"golang.org/x/term"
 )
 
 var version = "dev"
 
 func main() {
+	offerUpdate(os.Args[1:], os.Stdout, os.Stderr)
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, resolveMirror, newFetchClient))
+}
+
+// shouldCheckUpdate reports whether an invocation may look up a new release.
+func shouldCheckUpdate(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	return args[0] != "version" && args[0] != "--version"
+}
+
+// offerUpdate runs the startup update flow. Every failure is silent: the
+// requested command must still run and keep its exit status.
+func offerUpdate(args []string, stdout, stderr io.Writer) {
+	if !shouldCheckUpdate(args) {
+		return
+	}
+	cfg, err := loadConfig("")
+	if err != nil {
+		return
+	}
+	dir, err := cache.Path(cfg.CacheDir)
+	if err != nil {
+		return
+	}
+	_ = update.MaybeOffer(context.Background(), update.Options{
+		Current:  version,
+		Args:     args,
+		Client:   newFetchClient(cfg, nil, nil),
+		Store:    cache.Open(dir),
+		Disabled: cfg.NoUpdateCheck,
+		In:       os.Stdin,
+		Out:      stderr,
+		IsTTY:    func() bool { return term.IsTerminal(int(os.Stdin.Fd())) },
+		Exec:     update.Restart,
+		Now:      time.Now(),
+	})
 }
 
 type resolveFunc func(ctx context.Context, cfg config.Config, override string, client *fetch.Client) (string, error)

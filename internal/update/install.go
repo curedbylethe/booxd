@@ -32,10 +32,6 @@ var findExecutable = os.Executable
 // It is a variable so tests exercise the Windows path on any platform.
 var manualUpdatePlatform = runtime.GOOS == "windows"
 
-// restartProcess is a variable so tests never replace the process image.
-// Stage 03 calls it; nothing in this stage restarts.
-var restartProcess = Restart //nolint:unused // consumed by the startup hook
-
 // errManualUpdate reports that this platform upgrades through its installer.
 var errManualUpdate = errors.New("self-update is not supported on this platform")
 
