@@ -71,6 +71,39 @@ func TestDial(t *testing.T) {
 		}
 	})
 
+	t.Run("zero dial timeout", func(t *testing.T) {
+		f := newFake(t, welcome)
+		cfg := f.config()
+		cfg.DialTimeout = 0
+		client, err := Dial(context.Background(), cfg)
+		if err != nil {
+			t.Fatalf("Dial with no dial timeout: %v", err)
+		}
+		defer func() { _ = client.Close() }()
+	})
+
+	t.Run("ping before 001", func(t *testing.T) {
+		f := newFake(t, func(line string) []string {
+			switch {
+			case strings.HasPrefix(line, "NICK "):
+				return []string{"PING :cookie"}
+			case strings.HasPrefix(line, "PONG :cookie"):
+				return []string{":srv 001 booxd :welcome"}
+			case strings.HasPrefix(line, "JOIN "):
+				return []string{":srv 366 booxd #ebooks :End of /NAMES"}
+			}
+			return nil
+		})
+		client, err := Dial(context.Background(), f.config())
+		if err != nil {
+			t.Fatalf("Dial: %v", err)
+		}
+		defer func() { _ = client.Close() }()
+		if n := countPrefix(f.collect(4), "PONG :cookie"); n != 1 {
+			t.Fatal("fake did not see the PONG for the registration cookie")
+		}
+	})
+
 	t.Run("registration timeout", func(t *testing.T) {
 		f := newFake(t, nil)
 		cfg := f.config()
@@ -114,6 +147,23 @@ func TestDial(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("unrelated 422 before 366", func(t *testing.T) {
+		f := newFake(t, func(line string) []string {
+			switch {
+			case strings.HasPrefix(line, "USER "):
+				return []string{":srv 001 booxd :welcome"}
+			case strings.HasPrefix(line, "JOIN "):
+				return []string{":srv 422 booxd :MOTD File is missing", ":srv 366 booxd #ebooks :End of /NAMES"}
+			}
+			return nil
+		})
+		client, err := Dial(context.Background(), f.config())
+		if err != nil {
+			t.Fatalf("Dial with a 422 in the welcome burst: %v", err)
+		}
+		defer func() { _ = client.Close() }()
+	})
 }
 
 func TestDialCancelDuringRegistration(t *testing.T) {

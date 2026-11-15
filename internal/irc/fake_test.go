@@ -59,6 +59,9 @@ func (f *fake) config() Config {
 }
 
 func (f *fake) dial(ctx context.Context, network, addr string) (net.Conn, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	client, server := net.Pipe()
 	f.mu.Lock()
 	f.conns = append(f.conns, server)
