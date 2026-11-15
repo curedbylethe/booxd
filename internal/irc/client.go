@@ -78,8 +78,12 @@ func Dial(ctx context.Context, cfg Config) (*Client, error) {
 		return nil, fmt.Errorf("irc: empty nick")
 	}
 	addr := net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))
-	dctx, cancel := context.WithTimeout(ctx, cfg.DialTimeout)
-	defer cancel()
+	dctx := ctx
+	if cfg.DialTimeout > 0 {
+		var cancel context.CancelFunc
+		dctx, cancel = context.WithTimeout(ctx, cfg.DialTimeout)
+		defer cancel()
+	}
 
 	dial := cfg.DialFunc
 	if dial == nil {
@@ -281,6 +285,10 @@ func (c *Client) register(cfg Config) error {
 		switch msg.Command {
 		case "001":
 			return nil
+		case "PING":
+			if err := c.send(pong(msg)); err != nil {
+				return err
+			}
 		case "433":
 			if retries == maxNickRetries {
 				return fmt.Errorf("irc: register: nick %q rejected after %d attempts", c.nick, maxNickRetries+1)
@@ -318,10 +326,16 @@ func (c *Client) join(cfg Config) error {
 			return fmt.Errorf("irc: join %s: banned", cfg.Channel)
 		case "475":
 			return fmt.Errorf("irc: join %s: bad key", cfg.Channel)
+		case "PING":
+			if err := c.send(pong(msg)); err != nil {
+				return err
+			}
 		case "ERROR":
 			return fmt.Errorf("irc: join %s: %s", cfg.Channel, msg.Trailing)
 		default:
-			if isFailure(msg.Command) {
+			// A numeric that does not name our channel (422 with no MOTD)
+			// does not refuse the join.
+			if isFailure(msg.Command) && len(msg.Params) > 1 && strings.EqualFold(msg.Params[1], cfg.Channel) {
 				return fmt.Errorf("irc: join %s: %s %s", cfg.Channel, msg.Command, msg.Trailing)
 			}
 		}
