@@ -33,8 +33,10 @@ The CI workflow runs build, vet, tests, installer checks, and lint on Linux. It 
 | --- | --- |
 | `internal/cache` | Stores search results on disk. |
 | `internal/config` | Loads configuration paths, defaults, fields, and environment overrides. |
+| `internal/dcc` | Carries a DCC offer and dials the offerer without resume. |
 | `internal/down` | Loads cookies and performs authenticated, resumable downloads through `internal/fetch`. |
 | `internal/fetch` | Owns HTTP requests, streaming, cookies, timeouts, host serialization, retry state, and cache lookup. |
+| `internal/irc` | Owns the IRC connection, parser, and DCC SEND detection; no HTTP. |
 | `internal/mirror` | Probes mirrors and persists selection and cooldowns. |
 | `internal/parse` | Converts HTML into search records and book details without network access. |
 | `internal/tui` | Runs the tcell screen and local book navigation; the caller supplies search. |
