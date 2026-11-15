@@ -45,7 +45,6 @@ func (c *Client) handleDCC(msg Message) {
 		}
 	}
 	deliver(c, c.offers, offer, "dcc")
-	c.releaseSearchOffer(offer.From)
 }
 
 // ctcpBody unwraps one leading and one trailing \x01. A trailing with no

@@ -120,7 +120,8 @@ func TestSendGap(t *testing.T) {
 			t.Fatalf("first Say: %v", err)
 		}
 		// Release the slot so only the gap is under test.
-		client.releaseSearch("bookbot")
+		f.write(":bookbot!u@h PRIVMSG booxd :reply\r\n")
+		nextMessage(t, client.Messages())
 		if err := client.Say(ctx, "bookbot", "two"); err != nil {
 			t.Fatalf("second Say with no gap: %v", err)
 		}
@@ -297,8 +298,8 @@ func TestSearchSlot(t *testing.T) {
 		f.collect(1)
 
 		clk.advance(10 * time.Second)
-		// STAGE-06 calls this for a DCC offer from the same nick.
-		client.releaseSearch("bookbot")
+		f.write(":bookbot!u@h PRIVMSG booxd :\x01DCC SEND x 3405803785 5000 1\x01\r\n")
+		nextMessage(t, client.Messages())
 		if err := client.Say(ctx, "bookbot", "search two"); err != nil {
 			t.Fatalf("Say after an offer from the search bot: %v", err)
 		}
@@ -315,7 +316,8 @@ func TestSearchSlot(t *testing.T) {
 		f.collect(1)
 
 		clk.advance(10 * time.Second)
-		client.releaseSearch("otherbot")
+		f.write(":otherbot!u@h PRIVMSG booxd :\x01DCC SEND x 3405803785 5000 1\x01\r\n")
+		nextMessage(t, client.Messages())
 		if err := client.Say(ctx, "bookbot", "search two"); !errors.Is(err, ErrSearchPending) {
 			t.Fatalf("Say after an offer from another nick = %v, want ErrSearchPending", err)
 		}
@@ -335,7 +337,8 @@ func TestSearchSlot(t *testing.T) {
 			t.Fatalf("Say an hour later = %v, want ErrSearchPending", err)
 		}
 
-		client.releaseSearch("bookbot")
+		f.write(":bookbot!u@h PRIVMSG booxd :reply\r\n")
+		nextMessage(t, client.Messages())
 		if err := client.Say(ctx, "bookbot", "search three"); err != nil {
 			t.Fatalf("Say after the reply: %v", err)
 		}
