@@ -101,7 +101,7 @@ func Dial(ctx context.Context, cfg Config) (*Client, error) {
 
 	c := &Client{
 		conn:          conn,
-		reader:        bufio.NewReader(conn),
+		reader:        bufio.NewReaderSize(conn, maxLineLen+2),
 		sendTimeout:   cfg.SendTimeout,
 		idleTimeout:   cfg.IdleTimeout,
 		minSendGap:    cfg.MinSendGap,
@@ -114,13 +114,28 @@ func Dial(ctx context.Context, cfg Config) (*Client, error) {
 		trace:         cfg.Trace,
 		clock:         systemClock{},
 	}
+	// Cancelling during registration or join must unblock the read, not wait
+	// out the timeout; the nick is not registered yet, so no QUIT is sent.
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	if err := c.register(cfg); err != nil {
+		stop()
 		_ = conn.Close()
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		return nil, err
 	}
 	if err := c.join(cfg); err != nil {
+		stop()
 		_ = conn.Close()
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		return nil, err
+	}
+	if !stop() {
+		_ = conn.Close()
+		return nil, ctx.Err()
 	}
 	_ = conn.SetReadDeadline(time.Time{})
 	go func() {
@@ -231,7 +246,7 @@ func (c *Client) send(line string) error {
 // read returns the next parseable line, skipping noise the parser rejects.
 func (c *Client) read() (Message, error) {
 	for {
-		line, err := c.reader.ReadString('\n')
+		line, err := c.readLine()
 		if err != nil {
 			return Message{}, err
 		}
