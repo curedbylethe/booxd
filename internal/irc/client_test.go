@@ -138,11 +138,17 @@ func TestDialTLS(t *testing.T) {
 func TestSay(t *testing.T) {
 	t.Run("serialized", func(t *testing.T) {
 		f := newFake(t, welcome)
-		client, err := Dial(context.Background(), f.config())
+		cfg := f.config()
+		// The send limiter is not under test here, so a clock that always jumps
+		// ahead keeps both the gap and the slot expired; the senders then only
+		// contend for the writer.
+		cfg.SearchTimeout = time.Second
+		client, err := Dial(context.Background(), cfg)
 		if err != nil {
 			t.Fatalf("Dial: %v", err)
 		}
 		defer func() { _ = client.Close() }()
+		client.clock = &autoClock{now: time.Unix(1700000000, 0)}
 		f.collect(3) // NICK, USER, JOIN
 
 		const senders = 20
