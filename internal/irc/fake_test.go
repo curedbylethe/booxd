@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"io"
 	"math/big"
 	"net"
 	"strings"
@@ -52,6 +53,7 @@ func (f *fake) config() Config {
 		RegisterTimeout: 2 * time.Second,
 		JoinTimeout:     2 * time.Second,
 		SendTimeout:     2 * time.Second,
+		IdleTimeout:     2 * time.Second,
 		DialFunc:        f.dial,
 	}
 }
@@ -68,7 +70,7 @@ func (f *fake) dial(ctx context.Context, network, addr string) (net.Conn, error)
 // serve reads client lines and writes scripted replies from a second
 // goroutine, so a reply never blocks the reader.
 func (f *fake) serve(conn net.Conn) {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	if f.cert != nil {
 		conn = tls.Server(conn, &tls.Config{Certificates: []tls.Certificate{*f.cert}})
 	}
@@ -99,6 +101,30 @@ func (f *fake) serve(conn net.Conn) {
 		}
 	}
 	close(out)
+}
+
+// write sends raw bytes on the server side of every pipe. Tests use it for
+// input the reply script cannot produce: a bare LF or an over-long line.
+func (f *fake) write(raw string) {
+	f.t.Helper()
+	f.mu.Lock()
+	conns := append([]net.Conn(nil), f.conns...)
+	f.mu.Unlock()
+	for _, conn := range conns {
+		if _, err := io.WriteString(conn, raw); err != nil {
+			f.t.Errorf("fake: write: %v", err)
+		}
+	}
+}
+
+// closeAll drops the server side of every pipe, as a server would.
+func (f *fake) closeAll() {
+	f.t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, conn := range f.conns {
+		_ = conn.Close()
+	}
 }
 
 // collect waits for n lines the client wrote.
