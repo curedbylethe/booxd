@@ -17,6 +17,11 @@ const (
 // every other CTCP payload pass through untouched. A bad offer is traced and
 // dropped so the session stays open.
 func (c *Client) handleDCC(msg Message) {
+	// A real offer is addressed to our nick; one posted in the channel is
+	// somebody else's file, not an answer to our search.
+	if len(msg.Params) == 0 || !strings.EqualFold(msg.Params[0], c.nick) {
+		return
+	}
 	body := ctcpBody(msg.Trailing)
 	if len(body) < len(dccSend) || !strings.EqualFold(body[:len(dccSend)], dccSend) {
 		return
@@ -40,7 +45,7 @@ func (c *Client) handleDCC(msg Message) {
 		}
 	}
 	deliver(c, c.offers, offer, "dcc")
-	c.releaseSearch(offer.From)
+	c.releaseSearchOffer(offer.From)
 }
 
 // ctcpBody unwraps one leading and one trailing \x01. A trailing with no
