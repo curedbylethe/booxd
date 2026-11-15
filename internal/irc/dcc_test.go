@@ -65,13 +65,13 @@ func TestDCCSend(t *testing.T) {
 	}{
 		{
 			name: "quoted",
-			line: `:bot!b@203.0.113.9 PRIVMSG #ebooks :` + "\x01" + `DCC SEND "A Book.epub" 3232235777 5000 1234` + "\x01",
+			line: `:bot!b@203.0.113.9 PRIVMSG booxd :` + "\x01" + `DCC SEND "A Book.epub" 3232235777 5000 1234` + "\x01",
 			verb: "PRIVMSG",
 			body: "\x01" + `DCC SEND "A Book.epub" 3232235777 5000 1234` + "\x01",
 		},
 		{
 			name: "unquoted",
-			line: `:bot!b@203.0.113.9 PRIVMSG #ebooks :` + "\x01" + `DCC SEND A Book.epub 3232235777 5000 1234` + "\x01",
+			line: `:bot!b@203.0.113.9 PRIVMSG booxd :` + "\x01" + `DCC SEND A Book.epub 3232235777 5000 1234` + "\x01",
 			verb: "PRIVMSG",
 			body: "\x01" + `DCC SEND A Book.epub 3232235777 5000 1234` + "\x01",
 		},
@@ -99,7 +99,7 @@ func TestDCCSend(t *testing.T) {
 func TestDCCPublicIP(t *testing.T) {
 	client, f, _ := dccClient(t)
 	// A public integer address is kept; the prefix host is not applied.
-	f.write(`:bot!b@198.51.100.7 PRIVMSG #ebooks :` + "\x01" +
+	f.write(`:bot!b@198.51.100.7 PRIVMSG booxd :` + "\x01" +
 		`DCC SEND "A Book.epub" ` + dccPublic + ` 5000 1234` + "\x01\r\n")
 
 	assertOffer(t, nextOffer(t, client.DCC()), dcc.Offer{
@@ -110,9 +110,9 @@ func TestDCCPublicIP(t *testing.T) {
 
 func TestDCCPrivateNoHost(t *testing.T) {
 	client, f, trace := dccClient(t)
-	f.write(`:bot!b@ PRIVMSG #ebooks :` + "\x01" +
+	f.write(`:bot!b@ PRIVMSG booxd :` + "\x01" +
 		`DCC SEND "A Book.epub" ` + dccPrivate + ` 5000 1234` + "\x01\r\n")
-	f.write(":srv PRIVMSG #ebooks :still here\r\n")
+	f.write(":srv PRIVMSG booxd :still here\r\n")
 
 	nextMessage(t, client.Messages()) // the CTCP line still arrives
 	if msg := nextMessage(t, client.Messages()); msg.Trailing != "still here" {
@@ -131,7 +131,7 @@ func TestDCCNotAnOffer(t *testing.T) {
 	client, f, trace := dccClient(t)
 	lines := []string{
 		`:bot!b@h PRIVMSG booxd :` + "\x01" + `VERSION` + "\x01",
-		`:bot!b@h PRIVMSG #ebooks :hello`,
+		`:bot!b@h PRIVMSG booxd :hello`,
 		`:bot!b@h PRIVMSG booxd :` + "\x01" + `DCC CHAT chat ` + dccPrivate + ` 5000` + "\x01",
 		`:bot!b@h PRIVMSG booxd :` + "\x01" + `DCC RESUME "x" 5000 100` + "\x01",
 	}
@@ -149,11 +149,24 @@ func TestDCCNotAnOffer(t *testing.T) {
 	}
 }
 
+func TestDCCChannelOffer(t *testing.T) {
+	client, f, trace := dccClient(t)
+	line := `:stranger!s@198.51.100.7 PRIVMSG #ebooks :` + "\x01" +
+		`DCC SEND x 16843009 80 1` + "\x01"
+	f.write(line + "\r\n")
+
+	nextMessage(t, client.Messages())
+	noOffer(t, client.DCC())
+	if n := countTrace(trace.String(), "dcc offer"); n != 0 {
+		t.Fatalf("traces for a channel offer = %d, want 0: %q", n, trace.String())
+	}
+}
+
 func TestDCCFull(t *testing.T) {
 	client, f, trace := dccClient(t)
 	var script strings.Builder
 	for i := 0; i < 17; i++ {
-		fmt.Fprintf(&script, `:bot!b@203.0.113.9 PRIVMSG #ebooks :`+"\x01"+
+		fmt.Fprintf(&script, `:bot!b@203.0.113.9 PRIVMSG booxd :`+"\x01"+
 			`DCC SEND book%d.epub `+dccPrivate+` 5000 1234`+"\x01\r\n", i)
 	}
 	f.write(script.String())
@@ -170,7 +183,7 @@ func TestDCCFull(t *testing.T) {
 		nextMessage(t, client.Messages())
 	}
 	// The reader kept going after the drop.
-	f.write(":srv PRIVMSG #ebooks :after\r\n")
+	f.write(":srv PRIVMSG booxd :after\r\n")
 	if msg := nextMessage(t, client.Messages()); msg.Trailing != "after" {
 		t.Fatalf("message after the full DCC channel = %+v, want %q", msg, "after")
 	}
