@@ -36,21 +36,56 @@ func TestReadLines(t *testing.T) {
 }
 
 func TestReadLineTooLong(t *testing.T) {
-	f := newFake(t, welcome)
-	client, err := Dial(context.Background(), f.config())
-	if err != nil {
-		t.Fatalf("Dial: %v", err)
+	tests := []struct {
+		name string
+		raw  string
+	}{
+		{"newline after the cap", strings.Repeat("x", 4097) + "\r\n"},
+		{"no newline at all", strings.Repeat("x", 4098)},
 	}
-	f.collect(3)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFake(t, welcome)
+			client, err := Dial(context.Background(), f.config())
+			if err != nil {
+				t.Fatalf("Dial: %v", err)
+			}
+			f.collect(3)
 
-	f.write(strings.Repeat("x", 4097) + "\r\n")
+			f.writeBestEffort(tt.raw)
 
-	if err := waitErr(t, client); !errors.Is(err, ErrLineTooLong) {
-		t.Fatalf("Err() = %v, want ErrLineTooLong", err)
+			if err := waitErr(t, client); !errors.Is(err, ErrLineTooLong) {
+				t.Fatalf("Err() = %v, want ErrLineTooLong", err)
+			}
+			waitClosed(t, client.Messages())
+			if lines := f.drain(); len(lines) != 0 {
+				t.Fatalf("fake saw %q after an over-long line, want nothing", lines)
+			}
+		})
 	}
-	waitClosed(t, client.Messages())
-	if lines := f.drain(); len(lines) != 0 {
-		t.Fatalf("fake saw %q after an over-long line, want nothing", lines)
+}
+
+func TestDeliverAfterShutdown(t *testing.T) {
+	c := &Client{done: make(chan struct{}), msgs: make(chan Message, 1)}
+	close(c.done)
+	close(c.msgs)
+
+	// A reader that lost the race with Close must not send on a closed channel.
+	deliver(c, c.msgs, Message{}, "messages")
+}
+
+func TestCloseWhileReading(t *testing.T) {
+	for range 300 {
+		f := newFake(t, welcome)
+		client, err := Dial(context.Background(), f.config())
+		if err != nil {
+			t.Fatalf("Dial: %v", err)
+		}
+		f.flood(":srv PRIVMSG booxd :line\r\n")
+		if err := client.Close(); err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+		waitClosed(t, client.Messages())
 	}
 }
 

@@ -1,6 +1,7 @@
 package irc
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"net"
@@ -29,17 +30,12 @@ func (c *Client) readLoop() {
 				return
 			}
 		}
-		line, err := c.reader.ReadString('\n')
+		line, err := c.readLine()
 		if err != nil {
 			c.terminate(readFailure(c.idleTimeout, err))
 			return
 		}
-		line = strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
 		c.traceLine("<-", line)
-		if len(line) > maxLineLen {
-			c.terminate(ErrLineTooLong)
-			return
-		}
 		msg, err := Parse(line)
 		if err != nil {
 			c.tracef("irc: skip: %v", err)
@@ -64,6 +60,24 @@ func (c *Client) readLoop() {
 			deliver(c, c.msgs, msg, "messages")
 		}
 	}
+}
+
+// readLine reads one line with its ending removed, capped at maxLineLen bytes
+// before the newline. The buffer holds maxLineLen plus a CRLF, so an endless
+// line fails on the read that fills it instead of growing without bound.
+func (c *Client) readLine() (string, error) {
+	raw, err := c.reader.ReadSlice('\n')
+	if errors.Is(err, bufio.ErrBufferFull) {
+		return "", ErrLineTooLong
+	}
+	if err != nil {
+		return "", err
+	}
+	line := strings.TrimSuffix(strings.TrimSuffix(string(raw), "\n"), "\r")
+	if len(line) > maxLineLen {
+		return "", ErrLineTooLong
+	}
+	return line, nil
 }
 
 // pong replies to a PING with the same token, keeping the trailing form when
@@ -91,6 +105,13 @@ func (c *Client) terminate(err error) {
 func deliver[T any](c *Client, ch chan T, v T, kind string) {
 	c.deliverMu.Lock()
 	defer c.deliverMu.Unlock()
+	// shutdown closes done before it takes deliverMu, so a closed channel is
+	// never reachable from here.
+	select {
+	case <-c.done:
+		return
+	default:
+	}
 	select {
 	case ch <- v:
 	default:

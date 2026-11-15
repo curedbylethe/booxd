@@ -117,6 +117,34 @@ func (f *fake) write(raw string) {
 	}
 }
 
+// writeBestEffort sends raw bytes and ignores the write error. An over-long
+// line makes the client close before the whole write lands.
+func (f *fake) writeBestEffort(raw string) {
+	f.mu.Lock()
+	conns := append([]net.Conn(nil), f.conns...)
+	f.mu.Unlock()
+	for _, conn := range conns {
+		_, _ = io.WriteString(conn, raw)
+	}
+}
+
+// flood writes raw lines on every pipe until the client closes. The write error
+// that closing causes is ignored: this is for races, not for assertions.
+func (f *fake) flood(raw string) {
+	f.mu.Lock()
+	conns := append([]net.Conn(nil), f.conns...)
+	f.mu.Unlock()
+	for _, conn := range conns {
+		go func(conn net.Conn) {
+			for {
+				if _, err := io.WriteString(conn, raw); err != nil {
+					return
+				}
+			}
+		}(conn)
+	}
+}
+
 // closeAll drops the server side of every pipe, as a server would.
 func (f *fake) closeAll() {
 	f.t.Helper()
