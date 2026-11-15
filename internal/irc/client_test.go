@@ -116,6 +116,25 @@ func TestDial(t *testing.T) {
 	}
 }
 
+func TestDialCancelDuringRegistration(t *testing.T) {
+	// A server that accepts the connection and then says nothing.
+	f := newFake(t, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, err := Dial(ctx, f.config())
+	elapsed := time.Since(start)
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Dial = %v, want context.DeadlineExceeded", err)
+	}
+	if elapsed > time.Second {
+		t.Fatalf("Dial took %s after cancellation, want under 1s", elapsed)
+	}
+	f.collect(2) // NICK, USER
+}
+
 func TestDialTLS(t *testing.T) {
 	f := newFake(t, welcome)
 	f.cert = selfSigned(t)
