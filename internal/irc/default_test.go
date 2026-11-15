@@ -50,6 +50,9 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.MinSendGap != 10*time.Second {
 		t.Errorf("MinSendGap = %s, want 10s", cfg.MinSendGap)
 	}
+	if cfg.SearchTimeout != 2*time.Minute {
+		t.Errorf("SearchTimeout = %s, want 2m", cfg.SearchTimeout)
+	}
 	for _, d := range []struct {
 		name string
 		got  time.Duration

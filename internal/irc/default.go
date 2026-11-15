@@ -23,7 +23,10 @@ func DefaultConfig() Config {
 		SendTimeout:     10 * time.Second,
 		IdleTimeout:     5 * time.Minute,
 		MinSendGap:      10 * time.Second,
-		SearchTimeout:   0, // the bot's reply releases the search slot
+		// The bot usually answers in seconds. The timeout frees a channel
+		// search whose reply never arrives, because a channel target cannot
+		// be matched against the bot's nick.
+		SearchTimeout: 2 * time.Minute,
 	}
 	if DebugEnabled() {
 		cfg.Trace = os.Stderr
