@@ -6,11 +6,14 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/curedbylethe/booxd/internal/dcc"
 )
 
 // ErrClosed reports a client whose connection is closed.
@@ -32,7 +35,9 @@ type Config struct {
 	RegisterTimeout time.Duration // wait for 001
 	JoinTimeout     time.Duration // wait for 366
 	SendTimeout     time.Duration // per-write deadline
+	IdleTimeout     time.Duration // longest silence tolerated while reading; zero waits forever
 	DialFunc        func(ctx context.Context, network, addr string) (net.Conn, error)
+	Trace           io.Writer // raw line log; nil is silent
 }
 
 // Client is one registered, joined connection. Every write goes through send.
@@ -41,8 +46,15 @@ type Client struct {
 	reader      *bufio.Reader
 	writeMu     sync.Mutex
 	sendTimeout time.Duration
+	idleTimeout time.Duration
 	nick        string
 	channel     string
+	msgs        chan Message
+	offers      chan dcc.Offer
+	done        chan struct{}
+	deliverMu   sync.Mutex
+	trace       io.Writer
+	traceMu     sync.Mutex
 	errMu       sync.Mutex
 	err         error
 	closed      sync.Once
@@ -80,8 +92,13 @@ func Dial(ctx context.Context, cfg Config) (*Client, error) {
 		conn:        conn,
 		reader:      bufio.NewReader(conn),
 		sendTimeout: cfg.SendTimeout,
+		idleTimeout: cfg.IdleTimeout,
 		nick:        cfg.Nick,
 		channel:     cfg.Channel,
+		msgs:        make(chan Message, channelBuffer),
+		offers:      make(chan dcc.Offer, channelBuffer),
+		done:        make(chan struct{}),
+		trace:       cfg.Trace,
 	}
 	if err := c.register(cfg); err != nil {
 		_ = conn.Close()
@@ -92,8 +109,23 @@ func Dial(ctx context.Context, cfg Config) (*Client, error) {
 		return nil, err
 	}
 	_ = conn.SetReadDeadline(time.Time{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = c.Close()
+		case <-c.done:
+		}
+	}()
+	go c.readLoop()
 	return c, nil
 }
+
+// Messages carries every line the server sends, except PING, which is answered
+// by the reader. The channel closes when the session ends.
+func (c *Client) Messages() <-chan Message { return c.msgs }
+
+// DCC carries recognised DCC offers. The channel closes when the session ends.
+func (c *Client) DCC() <-chan dcc.Offer { return c.offers }
 
 // Nick returns the nick the server accepted.
 func (c *Client) Nick() string { return c.nick }
@@ -111,25 +143,41 @@ func (c *Client) CTCP(ctx context.Context, target, payload string) error {
 	return c.privmsg(ctx, target, "\x01"+payload+"\x01")
 }
 
-// Err returns the terminal error, or ErrClosed after Close.
+// Err returns the first terminal error, or ErrClosed after Close.
 func (c *Client) Err() error {
 	c.errMu.Lock()
 	defer c.errMu.Unlock()
 	return c.err
 }
 
-// Close sends QUIT once, closes the socket, and records ErrClosed. A second
-// call returns nil and writes nothing.
-func (c *Client) Close() error {
+// recordErr keeps the first terminal error; later calls change nothing.
+func (c *Client) recordErr(err error) {
+	c.errMu.Lock()
+	defer c.errMu.Unlock()
+	if c.err == nil {
+		c.err = err
+	}
+}
+
+// Close sends QUIT once and shuts down. A second call returns nil and writes
+// nothing.
+func (c *Client) Close() error { return c.shutdown(true) }
+
+// shutdown is the single shutdown path: it closes the socket, done, Messages
+// and DCC exactly once. QUIT is skipped when the socket is already dead.
+func (c *Client) shutdown(quit bool) error {
 	var err error
 	c.closed.Do(func() {
-		quitErr := c.send("QUIT")
-		err = errors.Join(quitErr, c.conn.Close())
-		c.errMu.Lock()
-		if c.err == nil {
-			c.err = ErrClosed
+		c.recordErr(ErrClosed)
+		if quit {
+			err = c.send("QUIT")
 		}
-		c.errMu.Unlock()
+		err = errors.Join(err, c.conn.Close())
+		close(c.done)
+		c.deliverMu.Lock()
+		close(c.msgs)
+		close(c.offers)
+		c.deliverMu.Unlock()
 	})
 	return err
 }
@@ -155,6 +203,9 @@ func (c *Client) send(line string) error {
 		}
 	}
 	_, err := c.conn.Write([]byte(line + "\r\n"))
+	if err == nil {
+		c.traceLine("->", line)
+	}
 	return err
 }
 
