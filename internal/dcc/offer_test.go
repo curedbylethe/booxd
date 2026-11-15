@@ -139,8 +139,8 @@ func TestOfferResolve(t *testing.T) {
 
 func TestOfferOpen(t *testing.T) {
 	server, client := net.Pipe()
-	defer server.Close()
-	defer client.Close()
+	defer func() { _ = server.Close() }()
+	defer func() { _ = client.Close() }()
 
 	var gotNetwork, gotAddr string
 	prev := dialContext
