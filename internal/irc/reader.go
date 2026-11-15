@@ -55,6 +55,11 @@ func (c *Client) readLoop() {
 			c.terminate(fmt.Errorf("irc: server ERROR: %s", msg.Trailing))
 			return
 		default:
+			// The bot answers a search with a PRIVMSG or a NOTICE; a DCC
+			// offer from the same nick releases it too.
+			if msg.Command == "PRIVMSG" || msg.Command == "NOTICE" {
+				c.releaseSearch(msg.Nick)
+			}
 			deliver(c, c.msgs, msg, "messages")
 		}
 	}

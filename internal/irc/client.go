@@ -36,6 +36,8 @@ type Config struct {
 	JoinTimeout     time.Duration // wait for 366
 	SendTimeout     time.Duration // per-write deadline
 	IdleTimeout     time.Duration // longest silence tolerated while reading; zero waits forever
+	MinSendGap      time.Duration // shortest space between chat sends; zero means no gap
+	SearchTimeout   time.Duration // how long one send waits for its reply; zero means no automatic release
 	DialFunc        func(ctx context.Context, network, addr string) (net.Conn, error)
 	Trace           io.Writer // raw line log; nil is silent
 }
@@ -58,6 +60,15 @@ type Client struct {
 	errMu       sync.Mutex
 	err         error
 	closed      sync.Once
+
+	// Send discipline: one gap and one search slot, guarded by limitMu.
+	clock         clock
+	limitMu       sync.Mutex
+	minSendGap    time.Duration
+	searchTimeout time.Duration
+	next          time.Time
+	searchNick    string
+	searchUntil   time.Time
 }
 
 // Dial connects, registers the nick, and joins the channel. It returns only
@@ -89,16 +100,19 @@ func Dial(ctx context.Context, cfg Config) (*Client, error) {
 	}
 
 	c := &Client{
-		conn:        conn,
-		reader:      bufio.NewReader(conn),
-		sendTimeout: cfg.SendTimeout,
-		idleTimeout: cfg.IdleTimeout,
-		nick:        cfg.Nick,
-		channel:     cfg.Channel,
-		msgs:        make(chan Message, channelBuffer),
-		offers:      make(chan dcc.Offer, channelBuffer),
-		done:        make(chan struct{}),
-		trace:       cfg.Trace,
+		conn:          conn,
+		reader:        bufio.NewReader(conn),
+		sendTimeout:   cfg.SendTimeout,
+		idleTimeout:   cfg.IdleTimeout,
+		minSendGap:    cfg.MinSendGap,
+		searchTimeout: cfg.SearchTimeout,
+		nick:          cfg.Nick,
+		channel:       cfg.Channel,
+		msgs:          make(chan Message, channelBuffer),
+		offers:        make(chan dcc.Offer, channelBuffer),
+		done:          make(chan struct{}),
+		trace:         cfg.Trace,
+		clock:         systemClock{},
 	}
 	if err := c.register(cfg); err != nil {
 		_ = conn.Close()
@@ -133,12 +147,14 @@ func (c *Client) Nick() string { return c.nick }
 // Channel returns the channel the server confirmed.
 func (c *Client) Channel() string { return c.channel }
 
-// Say writes one PRIVMSG line.
+// Say writes one PRIVMSG line. It returns ErrSendTooSoon inside MinSendGap and
+// ErrSearchPending while an earlier send awaits its reply.
 func (c *Client) Say(ctx context.Context, target, text string) error {
 	return c.privmsg(ctx, target, text)
 }
 
-// CTCP writes a PRIVMSG whose payload is wrapped in \x01 markers.
+// CTCP writes a PRIVMSG whose payload is wrapped in \x01 markers, under the
+// same gap and search slot as Say.
 func (c *Client) CTCP(ctx context.Context, target, payload string) error {
 	return c.privmsg(ctx, target, "\x01"+payload+"\x01")
 }
@@ -189,6 +205,9 @@ func (c *Client) privmsg(ctx context.Context, target, body string) error {
 	}
 	if strings.ContainsAny(body, "\r\n") {
 		return fmt.Errorf("irc: refusing to send %q: CR or LF", body)
+	}
+	if err := c.gateSend(target); err != nil {
+		return err
 	}
 	return c.send("PRIVMSG " + target + " :" + body)
 }
