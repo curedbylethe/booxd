@@ -66,9 +66,34 @@ func (c *Client) gateSend(target string) error {
 // releaseSearch frees the slot when nick is the one that occupies it: the bot
 // answers a search with an offer, a PRIVMSG, or a NOTICE.
 func (c *Client) releaseSearch(nick string) {
+	c.releaseSlot(func(target string) bool {
+		return strings.EqualFold(target, nick)
+	})
+}
+
+// releaseSearchFrom frees a nick target when that nick answers, and a channel
+// target when the answer is addressed to our nick.
+func (c *Client) releaseSearchFrom(msg Message) {
+	addressed := len(msg.Params) > 0 && strings.EqualFold(msg.Params[0], c.nick)
+	c.releaseSlot(func(target string) bool {
+		return strings.EqualFold(target, msg.Nick) || (addressed && strings.HasPrefix(target, "#"))
+	})
+}
+
+// releaseSearchOffer frees a nick target or a channel target, because any DCC
+// offer answers the channel search that asked for it.
+func (c *Client) releaseSearchOffer(nick string) {
+	c.releaseSlot(func(target string) bool {
+		return strings.EqualFold(target, nick) || strings.HasPrefix(target, "#")
+	})
+}
+
+// releaseSlot clears the search slot when match accepts its target. The
+// timeout stays as the fallback for an answer that never comes.
+func (c *Client) releaseSlot(match func(target string) bool) {
 	c.limitMu.Lock()
 	defer c.limitMu.Unlock()
-	if c.searchNick != "" && strings.EqualFold(c.searchNick, nick) {
+	if c.searchNick != "" && match(c.searchNick) {
 		c.searchNick = ""
 		c.searchUntil = time.Time{}
 	}

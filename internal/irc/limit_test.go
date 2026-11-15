@@ -231,6 +231,44 @@ func TestSearchSlot(t *testing.T) {
 		f.collect(1)
 	})
 
+	t.Run("channel reply addressed to us releases", func(t *testing.T) {
+		client, f, clk := gateClient(t, 10*time.Second, 2*time.Minute)
+		ctx := context.Background()
+
+		if err := client.Say(ctx, "#ebooks", "search one"); err != nil {
+			t.Fatalf("Say at t0: %v", err)
+		}
+		f.collect(1)
+
+		clk.advance(10 * time.Second)
+		f.write(":bookbot!u@h PRIVMSG booxd :no results\r\n")
+		nextMessage(t, client.Messages())
+
+		if err := client.Say(ctx, "#ebooks", "search two"); err != nil {
+			t.Fatalf("Say after the reply: %v", err)
+		}
+		f.collect(1)
+	})
+
+	t.Run("channel offer releases", func(t *testing.T) {
+		client, f, clk := gateClient(t, 10*time.Second, 2*time.Minute)
+		ctx := context.Background()
+
+		if err := client.Say(ctx, "#ebooks", "search one"); err != nil {
+			t.Fatalf("Say at t0: %v", err)
+		}
+		f.collect(1)
+
+		clk.advance(10 * time.Second)
+		f.write(":bookbot!u@h PRIVMSG booxd :\x01DCC SEND x 3405803785 5000 1\x01\r\n")
+		nextMessage(t, client.Messages())
+
+		if err := client.Say(ctx, "#ebooks", "download"); err != nil {
+			t.Fatalf("Say after the offer: %v", err)
+		}
+		f.collect(1)
+	})
+
 	t.Run("another nick does not release", func(t *testing.T) {
 		client, f, clk := gateClient(t, 10*time.Second, 30*time.Second)
 		ctx := context.Background()

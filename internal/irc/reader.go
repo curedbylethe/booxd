@@ -54,7 +54,7 @@ func (c *Client) readLoop() {
 			// The bot answers a search with a PRIVMSG or a NOTICE; a DCC
 			// offer from the same nick releases it too.
 			if msg.Command == "PRIVMSG" || msg.Command == "NOTICE" {
-				c.releaseSearch(msg.Nick)
+				c.releaseSearchFrom(msg)
 				c.handleDCC(msg)
 			}
 			deliver(c, c.msgs, msg, "messages")
