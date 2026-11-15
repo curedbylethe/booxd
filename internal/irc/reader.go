@@ -59,6 +59,7 @@ func (c *Client) readLoop() {
 			// offer from the same nick releases it too.
 			if msg.Command == "PRIVMSG" || msg.Command == "NOTICE" {
 				c.releaseSearch(msg.Nick)
+				c.handleDCC(msg)
 			}
 			deliver(c, c.msgs, msg, "messages")
 		}
