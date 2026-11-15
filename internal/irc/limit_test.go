@@ -209,6 +209,28 @@ func TestSearchSlot(t *testing.T) {
 		f.collect(1)
 	})
 
+	t.Run("channel target expires", func(t *testing.T) {
+		client, f, clk := gateClient(t, 10*time.Second, 2*time.Minute)
+		ctx := context.Background()
+
+		if err := client.Say(ctx, "#ebooks", "search one"); err != nil {
+			t.Fatalf("Say at t0: %v", err)
+		}
+		f.collect(1)
+
+		// The bot answers from its own nick, which cannot match the channel.
+		clk.advance(10 * time.Second)
+		if err := client.Say(ctx, "#ebooks", "search two"); !errors.Is(err, ErrSearchPending) {
+			t.Fatalf("Say at t0+10s = %v, want ErrSearchPending", err)
+		}
+
+		clk.advance(2 * time.Minute)
+		if err := client.Say(ctx, "#ebooks", "search three"); err != nil {
+			t.Fatalf("Say after the timeout: %v", err)
+		}
+		f.collect(1)
+	})
+
 	t.Run("another nick does not release", func(t *testing.T) {
 		client, f, clk := gateClient(t, 10*time.Second, 30*time.Second)
 		ctx := context.Background()
