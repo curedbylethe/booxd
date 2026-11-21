@@ -106,6 +106,9 @@ func run(ctx context.Context, screen tcell.Screen, opts Options, inline bool) er
 	// cancelDownload stops the one running download; only this goroutine
 	// touches it.
 	cancelDownload := context.CancelFunc(func() {})
+	// cancelSearch stops the latest search request when a newer one replaces
+	// it; the sequence number still decides which reply wins.
+	cancelSearch := context.CancelFunc(func() {})
 	for {
 		var event tcell.Event
 		if len(queued) > 0 {
@@ -142,8 +145,12 @@ func run(ctx context.Context, screen tcell.Screen, opts Options, inline bool) er
 				m.statusErr = false
 				paint(screen, m)
 				seq, from, query, page := m.searchSeq, m.source, m.query, m.page
+				cancelSearch()
+				sctx, scancel := context.WithCancel(ctx)
+				cancelSearch = scancel
 				start(func() {
-					books, err := opts.Search(ctx, from, query, page)
+					defer scancel()
+					books, err := opts.Search(sctx, from, query, page)
 					post(&update{apply: func(m model) (model, bool) { return applySearch(m, seq, page, books, err) }})
 				})
 			case act.detail:
