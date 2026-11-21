@@ -4,7 +4,7 @@ Search, inspect, and download books from Anna’s Archive with a terminal app bu
 
 ![booxd search results in the terminal](docs/images/tui-search.png)
 
-booxd provides search, book details, gated downloads, and an interactive TUI. It runs in the foreground; `serve` is not implemented. On Android, `get --open` hands a saved file to `termux-open` and Android’s default file handler.
+booxd provides search, book details, gated downloads, and an interactive TUI. The `search`, `show`, and `get` commands can also use a Z-Library EAPI host that you configure; see [Z-Library](#z-library). It runs in the foreground; `serve` is not implemented. On Android, `get --open` hands a saved file to `termux-open` and Android’s default file handler.
 
 ## Installation
 
@@ -105,13 +105,13 @@ See [Termux setup](docs/termux.md) for Boox details. See [CONTRIBUTING.md](CONTR
 
 ## CLI reference
 
-Flags go before the search query. `tui` reads config from `BOOXD_CONFIG`; it has no `--config`, `--mirror`, or `--verbose` flags.
+Flags go before the search query or book ID. `tui` reads config from `BOOXD_CONFIG`; it has no `--config`, `--mirror`, or `--verbose` flags.
 
 | Command | Arguments and flags | Purpose |
 | --- | --- | --- |
-| `booxd search` | `--config`, `--mirror`, `--page` (1), `--dump-html`, `--max-age` (24h), `--no-cache`, `--verbose`; query | Search the catalog. `--mirror` skips discovery; `--dump-html` writes raw or cached HTML. |
-| `booxd show` | `--config`, `--mirror`, `--verbose`; one book ID | Show metadata and download options. |
-| `booxd get` | `--config`, `--cookies`, `--mirror`, `--open`, `--verbose`; one book ID | Download with a supplied Netscape cookie jar. `--open` invokes `termux-open` on Android. |
+| `booxd search` | `--config`, `--source` (anna), `--mirror`, `--page` (1), `--dump-html`, `--max-age` (24h), `--no-cache`, `--verbose`; query | Search the catalog. `--mirror` skips discovery; `--dump-html` writes raw or cached HTML. |
+| `booxd show` | `--config`, `--source` (anna), `--mirror`, `--verbose`; one book ID | Show metadata and download options. |
+| `booxd get` | `--config`, `--source` (anna), `--cookies`, `--mirror`, `--open`, `--verbose`; one book ID | Download with a supplied Netscape cookie jar. `--open` invokes `termux-open` on Android. |
 | `booxd tui` | `--mono` | Open interactive search; `--mono` selects monochrome theme. |
 | `booxd version`, `booxd --version` | None | Print version and target. |
 | `booxd serve` | None | Not implemented; exits 1. |
@@ -122,13 +122,17 @@ booxd show BOOK_ID
 booxd get --cookies cookies.txt BOOK_ID
 ```
 
-`BOOK_ID` is the ID that `search` prints (`36451`), the same ID with a slug (`36451-the-hobbit`), or the qualified form `anna:36451`. A reference that names any other source exits with status 2 and `booxd: <source> books are not available yet`.
+`--source` accepts `anna` and `zlibrary`; `anna` is the default. `--source irc` exits with status 2 and `booxd: irc books are not available yet`. Any other value exits with status 2 and `booxd: unknown source "<value>"`.
+
+`BOOK_ID` is the ID that `search` prints. For Anna's Archive it is `36451`, the same ID with a slug (`36451-the-hobbit`), or the qualified form `anna:36451`. For Z-Library it is `zlibrary:36451/<hash>`, or `36451/<hash>` with `--source zlibrary`. A source prefix in `BOOK_ID` wins over `--source`. A reference that names `irc` exits with status 2 and `booxd: irc books are not available yet`.
+
+`--mirror`, `--cookies`, `--dump-html`, and `--max-age` apply to Anna's Archive only. With Z-Library they exit with status 2 and `booxd: --<flag> applies to anna only`. With Z-Library, `--no-cache` skips both reading and writing the cache.
 
 | Exit code | Meaning |
 | --- | --- |
 | `0` | Success or no search results |
 | `1` | Runtime failure |
-| `2` | Usage error or missing download session |
+| `2` | Usage error, unknown or unavailable source, missing download session, or missing Z-Library `base_url` or session file |
 
 ## Configuration
 
@@ -144,8 +148,10 @@ Config loads from `booxd/config.toml` under the OS config directory. Flags overr
 | `request_timeout` | `30s` | Positive Go duration for requests. |
 | `per_host_interval` | `1s` | Minimum time between request starts to one host. |
 | `no_update_check` | `false` | Disable the startup update check. |
+| `[zlibrary] base_url` | Empty | Absolute `https` URL of the Z-Library EAPI host. Required for `--source zlibrary`. |
+| `[zlibrary] session_file` | Empty | Netscape cookie file with the `remix_userid` or `remix_userkey` cookie for `base_url`. Required for `get`; optional for `search` and `show`. |
 
-Environment: `BOOXD_CONFIG`, `BOOXD_MIRRORS`, `BOOXD_DOWNLOAD_DIR`, `BOOXD_CACHE_DIR`, `BOOXD_PROXY`, `BOOXD_USER_AGENT`, `BOOXD_REQUEST_TIMEOUT`, `BOOXD_PER_HOST_INTERVAL`, `BOOXD_NO_UPDATE_CHECK`.
+Environment: `BOOXD_CONFIG`, `BOOXD_MIRRORS`, `BOOXD_DOWNLOAD_DIR`, `BOOXD_CACHE_DIR`, `BOOXD_PROXY`, `BOOXD_USER_AGENT`, `BOOXD_REQUEST_TIMEOUT`, `BOOXD_PER_HOST_INTERVAL`, `BOOXD_NO_UPDATE_CHECK`, `BOOXD_ZLIBRARY_BASE_URL`, `BOOXD_ZLIBRARY_SESSION_FILE`.
 
 | Platform | Config file | Cache |
 | --- | --- | --- |
@@ -161,6 +167,18 @@ request_timeout = "45s"
 per_host_interval = "2s"
 ```
 
+### Z-Library
+
+booxd has no built-in Z-Library host. Set `base_url` to the EAPI host you use:
+
+```toml
+[zlibrary]
+base_url = "https://eapi.example.invalid"
+session_file = "/home/you/zlibrary-cookies.txt"
+```
+
+Export the session file from a browser where you are signed in. booxd never signs in, asks for a password, or refreshes a session. Without `session_file`, `search` and `show` work anonymously and use the cache. With `session_file`, booxd sends its cookies only to the host they belong to and does not cache responses. booxd never prints cookie values or download links.
+
 ## Troubleshooting
 
 | Symptom | Solution |
@@ -173,6 +191,15 @@ per_host_interval = "2s"
 | Config error | Check TOML keys, positive durations, absolute mirror URLs, and the selected `BOOXD_CONFIG` file. |
 | TUI needs 80x24 | Enlarge the terminal to at least 80 columns by 24 rows. |
 | Search says `no results` | Empty results exit successfully with code 0. |
+| `zlibrary needs [zlibrary] base_url` | Set `base_url` in `[zlibrary]` or `BOOXD_ZLIBRARY_BASE_URL`. |
+| `base_url ... must be an https URL` | Use an absolute `https://` URL. |
+| `read cookie file ...` | Check that `session_file` names a readable Netscape cookie file. |
+| `session file ... has no remix_userid or remix_userkey cookie` | Export the cookies again from a signed-in session on the `base_url` host. |
+| `downloads need a signed-in session; set [zlibrary] session_file` | Set `session_file`; Z-Library downloads need a session. |
+| `session rejected: ...; supply a fresh session file` | The session expired or was signed out. Export a new cookie file. |
+| `download quota exhausted: ...` | The account reached its download limit. Wait for the limit to reset; booxd does not retry. |
+| `host is challenging automated requests` | The host shows a browser check. booxd does not retry; try later or choose another host. |
+| `--mirror applies to anna only` | Remove Anna-only flags when you use `--source zlibrary` or a `zlibrary:` ID. |
 
 ```sh
 export BOOXD_DOWNLOAD_DIR="$HOME/storage/downloads"

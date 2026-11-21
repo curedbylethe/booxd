@@ -33,7 +33,7 @@ func TestRunShow(t *testing.T) {
 	search := showFixture(t, "search-hit.html")
 	fullOutput := "title: Test\nauthor: -\npublisher: -\nyear: 2022\nlanguage: English\nformat: PDF\nsize: 51.0 MB\nisbn: -\npages: 1\ndownloads require a signed-in session\n"
 	richOutput := "title: Test\nauthor: Sleator, William\npublisher: Amulet Books\nyear: 2010\nlanguage: English\nformat: EPUB\nsize: 3.0 MB\nisbn: 9780810993563,9780810989894\npages: -\ndownloads require a signed-in session\n"
-	usage := "usage: booxd show [flags] <id>\nflags must precede the id\n  -config string\n    \tconfig file path\n  -mirror string\n    \tbase URL; skip mirror discovery\n  -verbose\n    \tlog each fetch attempt to stderr\n"
+	usage := "usage: booxd show [flags] <id>\nflags must precede the id\n  -config string\n    \tconfig file path\n  -mirror string\n    \tbase URL; skip mirror discovery\n  -source string\n    \tbook source: anna or zlibrary (default \"anna\")\n  -verbose\n    \tlog each fetch attempt to stderr\n"
 	mixed := `<div id="book-panel-details"><table><tr><td>Title</td><td>Test</td></tr></table></div>` +
 		`<div id="book-panel-downloads"><li class="list-disc"><span class="font-medium text-[#444]">Fast Partner Server #1</span><a href="https://annas-archive.is/account">Log in to access downloads</a></li>` +
 		`<li class="list-disc"><span class="font-medium text-[#444]">Slow Partner Server #1</span><a href="https://annas-archive.is/slow_download/abc/0/0">Download</a></li></div>`
@@ -60,7 +60,7 @@ func TestRunShow(t *testing.T) {
 		{name: "two ids", args: []string{"show", "1", "2"}, wantCode: 2, wantErr: usage},
 		{name: "invalid id", args: []string{"show", "../etc"}, wantCode: 2, wantErr: `booxd: invalid book id "../etc"` + "\n"},
 		{name: "qualified anna id", args: []string{"show", "anna:36451"}, body: full, status: 200, wantCode: 0, wantOut: fullOutput, wantErr: "mirror: https://mirror.test\n", wantURL: "https://mirror.test/books/36451", wantClients: 1, calls: 1, wantLookups: 1},
-		{name: "other source refused", args: []string{"show", "zlibrary:1234/ab12cd"}, wantCode: 2, wantErr: "booxd: zlibrary books are not available yet\n"},
+		{name: "other source refused", args: []string{"show", "irc:16d6770d2ba9"}, wantCode: 2, wantErr: "booxd: irc books are not available yet\n"},
 		{name: "anna id with hash", args: []string{"show", "anna:12/ab"}, wantCode: 2, wantErr: `booxd: invalid book id "anna:12/ab"` + "\n"},
 		{name: "help", args: []string{"show", "-h"}, wantCode: 2, wantErr: usage},
 		{name: "full fixture", args: []string{"show", "36451"}, body: full, status: 200, wantCode: 0, wantOut: fullOutput, wantErr: "mirror: https://mirror.test\n", wantURL: "https://mirror.test/books/36451", wantClients: 1, calls: 1, wantLookups: 1},
