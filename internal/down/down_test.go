@@ -43,12 +43,13 @@ func TestDownloadWritesFinalFile(t *testing.T) {
 
 func TestResumeSendsRangeAndAppends(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("ETag", `"v1"`)
 		if r.Header.Get("Range") == "" {
 			w.Header().Set("Content-Length", "0")
 			return
 		}
-		if got := r.Header.Get("Range"); got != "bytes=5-" {
-			t.Errorf("Range = %q", got)
+		if got := r.Header.Get("Range"); got != "bytes=5-" || r.Header.Get("If-Range") != `"v1"` {
+			t.Errorf("Range = %q, If-Range = %q", got, r.Header.Get("If-Range"))
 		}
 		w.Header().Set("Content-Range", "bytes 5-9/10")
 		w.Header().Set("Content-Length", "5")
@@ -57,15 +58,14 @@ func TestResumeSendsRangeAndAppends(t *testing.T) {
 	}))
 	defer server.Close()
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "book.epub.part"), []byte("hello"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writePart(t, filepath.Join(dir, "book.epub.part"), "hello")
 	got, err := Download(context.Background(), downClient(), Request{URL: server.URL + "/book.epub", Dir: dir})
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertFile(t, got, "helloworld")
 	assertMissing(t, got+".part")
+	assertMissing(t, got+".part.meta")
 }
 
 func TestResumeRejectsInvalidContentRange(t *testing.T) {
@@ -79,6 +79,7 @@ func TestResumeRejectsInvalidContentRange(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("ETag", `"v1"`)
 				if r.Header.Get("Range") == "" {
 					w.Header().Set("Content-Length", "0")
 					return
@@ -91,9 +92,7 @@ func TestResumeRejectsInvalidContentRange(t *testing.T) {
 			defer server.Close()
 			dir := t.TempDir()
 			part := filepath.Join(dir, "book.epub.part")
-			if err := os.WriteFile(part, []byte("hello"), 0o600); err != nil {
-				t.Fatal(err)
-			}
+			writePart(t, part, "hello")
 			_, err := Download(context.Background(), downClient(), Request{URL: server.URL + "/book.epub", Dir: dir})
 			if err == nil || !strings.Contains(err.Error(), test.wantError) {
 				t.Fatalf("error = %v, want containing %q", err, test.wantError)
@@ -106,15 +105,14 @@ func TestResumeRejectsInvalidContentRange(t *testing.T) {
 
 func TestServerIgnoringRangeRestarts(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("ETag", `"v1"`)
 		w.Header().Set("Content-Length", "5")
 		_, _ = io.WriteString(w, "fresh")
 	}))
 	defer server.Close()
 	dir := t.TempDir()
 	part := filepath.Join(dir, "book.epub.part")
-	if err := os.WriteFile(part, []byte("stale"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writePart(t, part, "stale")
 	got, err := Download(context.Background(), downClient(), Request{URL: server.URL + "/book.epub", Dir: dir})
 	if err != nil {
 		t.Fatal(err)
@@ -127,6 +125,7 @@ func TestRangeNotSatisfiableCompletionAndRetry(t *testing.T) {
 		var calls atomic.Int32
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			calls.Add(1)
+			w.Header().Set("ETag", `"v1"`)
 			if r.Header.Get("Range") == "" {
 				w.Header().Set("Content-Length", "0")
 				return
@@ -137,9 +136,7 @@ func TestRangeNotSatisfiableCompletionAndRetry(t *testing.T) {
 		defer server.Close()
 		dir := t.TempDir()
 		part := filepath.Join(dir, "book.epub.part")
-		if err := os.WriteFile(part, []byte("hello"), 0o600); err != nil {
-			t.Fatal(err)
-		}
+		writePart(t, part, "hello")
 		var progress strings.Builder
 		got, err := Download(context.Background(), downClient(), Request{URL: server.URL + "/book.epub", Dir: dir, Progress: &progress})
 		if err != nil {
@@ -155,6 +152,7 @@ func TestRangeNotSatisfiableCompletionAndRetry(t *testing.T) {
 		var calls atomic.Int32
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			call := calls.Add(1)
+			w.Header().Set("ETag", `"v1"`)
 			if call == 1 {
 				w.Header().Set("Content-Length", "0")
 				return
@@ -175,9 +173,7 @@ func TestRangeNotSatisfiableCompletionAndRetry(t *testing.T) {
 		}))
 		defer server.Close()
 		dir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(dir, "book.epub.part"), []byte("xx"), 0o600); err != nil {
-			t.Fatal(err)
-		}
+		writePart(t, filepath.Join(dir, "book.epub.part"), "xx")
 		got, err := Download(context.Background(), downClient(), Request{URL: server.URL + "/book.epub", Dir: dir})
 		if err != nil {
 			t.Fatal(err)
@@ -386,6 +382,7 @@ func TestRedirectSameOriginKeepsRangeAndCookie(t *testing.T) {
 		if cookie, err := r.Cookie("sid"); err != nil || cookie.Value != "dummy" {
 			t.Errorf("%s sid cookie = %v, error = %v", r.URL.Path, cookie, err)
 		}
+		w.Header().Set("ETag", `"v1"`)
 		if r.Header.Get("Range") == "" {
 			w.Header().Set("Content-Length", "0")
 			return
@@ -408,9 +405,7 @@ func TestRedirectSameOriginKeepsRangeAndCookie(t *testing.T) {
 	jar.SetCookies(u, []*http.Cookie{{Name: "sid", Value: "dummy"}})
 	client := fetch.New(fetch.WithInterval(0), fetch.WithTimeout(0), fetch.WithJar(jar))
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "book.epub.part"), []byte("hello"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writePart(t, filepath.Join(dir, "book.epub.part"), "hello")
 	got, err := Download(context.Background(), client, Request{URL: server.URL + "/book.epub", Dir: dir})
 	if err != nil {
 		t.Fatal(err)
@@ -503,6 +498,152 @@ func TestDownloadSendsJarCookie(t *testing.T) {
 	jar.SetCookies(u, []*http.Cookie{{Name: "sid", Value: "dummy"}})
 	client := fetch.New(fetch.WithInterval(0), fetch.WithTimeout(0), fetch.WithJar(jar))
 	if _, err := Download(context.Background(), client, Request{URL: server.URL + "/book.epub", Dir: t.TempDir()}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNotBookRemovesPart(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		contentType string
+		body        string
+	}{
+		{name: "html content type", contentType: "text/html; charset=utf-8", body: "PK\x03\x04"},
+		{name: "xhtml content type", contentType: "application/xhtml+xml", body: "PK\x03\x04"},
+		{name: "sniffed html", contentType: "application/epub+zip", body: "\n<!DOCTYPE html><html><body>log in</body></html>"},
+		{name: "empty body", contentType: "application/epub+zip"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", test.contentType)
+				w.Header().Set("Content-Length", fmt.Sprint(len(test.body)))
+				_, _ = io.WriteString(w, test.body)
+			}))
+			defer server.Close()
+			dir := t.TempDir()
+			part := filepath.Join(dir, "book.epub.part")
+			if err := os.WriteFile(part, []byte("stale"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := Download(context.Background(), downClient(), Request{URL: server.URL + "/book.epub?token=secret", Dir: dir})
+			if !errors.Is(err, ErrNotBook) || strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), "book.epub") {
+				t.Fatalf("error = %v, want ErrNotBook without URL", err)
+			}
+			assertMissing(t, part)
+			assertMissing(t, part+".meta")
+			assertMissing(t, filepath.Join(dir, "book.epub"))
+		})
+	}
+}
+
+func TestPartialWithoutMatchingSidecarRestarts(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		meta string
+	}{
+		{name: "no sidecar"},
+		{name: "validator changed", meta: "\"v0\"\n5\n"},
+		{name: "total changed", meta: "\"v1\"\n9\n"},
+		{name: "no validator stored", meta: "\n5\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var ranged atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("Range") != "" {
+					ranged.Add(1)
+				}
+				w.Header().Set("ETag", `"v1"`)
+				w.Header().Set("Content-Length", "5")
+				_, _ = io.WriteString(w, "fresh")
+			}))
+			defer server.Close()
+			dir := t.TempDir()
+			part := filepath.Join(dir, "book.epub.part")
+			if err := os.WriteFile(part, []byte("sta"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if test.meta != "" {
+				if err := os.WriteFile(part+".meta", []byte(test.meta), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got, err := Download(context.Background(), downClient(), Request{URL: server.URL + "/book.epub", Dir: dir})
+			if err != nil || ranged.Load() != 0 {
+				t.Fatalf("error = %v, ranged requests = %d", err, ranged.Load())
+			}
+			assertFile(t, got, "fresh")
+			assertMissing(t, part+".meta")
+		})
+	}
+}
+
+func TestInterruptedDownloadResumesWithSidecar(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.Header().Set("ETag", `W/"weak"`)
+		w.Header().Set("Last-Modified", "Mon, 02 Jan 2006 15:04:05 GMT")
+		switch {
+		case calls.Load() == 1:
+			w.Header().Set("Content-Length", "10")
+			_, _ = io.WriteString(w, "hello")
+		case r.Header.Get("Range") == "":
+			w.Header().Set("Content-Length", "10")
+			_, _ = io.WriteString(w, "helloworld")
+		default:
+			if r.Header.Get("Range") != "bytes=5-" || r.Header.Get("If-Range") != "Mon, 02 Jan 2006 15:04:05 GMT" {
+				t.Errorf("Range = %q, If-Range = %q", r.Header.Get("Range"), r.Header.Get("If-Range"))
+			}
+			w.Header().Set("Content-Range", "bytes 5-9/10")
+			w.Header().Set("Content-Length", "5")
+			w.WriteHeader(http.StatusPartialContent)
+			_, _ = io.WriteString(w, "world")
+		}
+	}))
+	defer server.Close()
+	dir := t.TempDir()
+	part := filepath.Join(dir, "book.epub.part")
+	if _, err := Download(context.Background(), downClient(), Request{URL: server.URL + "/book.epub", Dir: dir}); err == nil {
+		t.Fatal("expected truncated download")
+	}
+	assertFile(t, part+".meta", "Mon, 02 Jan 2006 15:04:05 GMT\n10\n")
+	got, err := Download(context.Background(), downClient(), Request{URL: server.URL + "/book.epub", Dir: dir})
+	if err != nil || calls.Load() != 3 {
+		t.Fatalf("error = %v, calls = %d", err, calls.Load())
+	}
+	assertFile(t, got, "helloworld")
+	assertMissing(t, part)
+	assertMissing(t, part+".meta")
+}
+
+func TestStatusErrorTyped(t *testing.T) {
+	for _, test := range []struct {
+		code int
+		want string
+	}{
+		{code: http.StatusUnauthorized, want: "download refused: Unauthorized"},
+		{code: http.StatusNotFound, want: "download failed: status 404"},
+		{code: http.StatusGone, want: "download failed: status 410"},
+	} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(test.code)
+		}))
+		_, err := Download(context.Background(), downClient(), Request{URL: server.URL + "/book.epub?token=secret", Dir: t.TempDir()})
+		server.Close()
+		var status *StatusError
+		if !errors.As(err, &status) || status.Code != test.code || err.Error() != test.want {
+			t.Fatalf("error = %v, want StatusError %q", err, test.want)
+		}
+	}
+}
+
+// writePart writes a partial file with a sidecar binding it to ETag "v1".
+func writePart(t *testing.T, path, data string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path+".meta", []byte("\"v1\"\n\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
