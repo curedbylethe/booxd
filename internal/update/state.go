@@ -15,7 +15,7 @@ const (
 	CheckTTL = 24 * time.Hour
 	// CheckTimeout bounds the latest-release lookup.
 	CheckTimeout = 5 * time.Second
-	// stateKey is the cache.Store query key; the state uses page 0.
+	// stateKey is the identity the update check stores under; the state uses page 0.
 	stateKey = "update-check"
 )
 
@@ -78,7 +78,7 @@ func offer(current string, s state) Offer {
 // loadState reads the check state. Entry.FetchedAt carries the check time, so
 // the record and the entry never disagree.
 func loadState(store *cache.Store) (state, bool) {
-	entry, ok := store.Get(stateKey, 0)
+	entry, ok := store.Get(cache.Key(stateKey))
 	if !ok {
 		return state{}, false
 	}
@@ -95,5 +95,5 @@ func saveState(store *cache.Store, s state) error {
 	if err != nil {
 		return err
 	}
-	return store.Put(cache.Entry{Query: stateKey, Page: 0, Status: 200, FetchedAt: s.CheckedAt, Body: body})
+	return store.Put(cache.Entry{Key: cache.Key(stateKey), Query: stateKey, Page: 0, Status: 200, FetchedAt: s.CheckedAt, Body: body})
 }

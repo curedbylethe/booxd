@@ -11,12 +11,13 @@ import (
 	"github.com/curedbylethe/booxd/internal/cache"
 	"github.com/curedbylethe/booxd/internal/config"
 	"github.com/curedbylethe/booxd/internal/fetch"
+	"github.com/curedbylethe/booxd/internal/source"
 )
 
 func TestSearchFreshCache(t *testing.T) {
 	store := cache.Open(t.TempDir())
 	now := time.Now()
-	if err := store.Put(cache.Entry{Query: "test", Page: 1, Status: 200, FetchedAt: now.Add(-time.Hour), Body: []byte(card)}); err != nil {
+	if err := store.Put(cache.Entry{Key: cache.SearchKey(source.Anna, "test", 1), Query: "test", Page: 1, Status: 200, FetchedAt: now.Add(-time.Hour), Body: []byte(card)}); err != nil {
 		t.Fatal(err)
 	}
 	client := fetch.New(fetch.WithLookup(func(context.Context, string) (int, []byte, bool) {
@@ -47,7 +48,7 @@ func TestSearchUnparseableCacheIsError(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			store := cache.Open(t.TempDir())
 			now := time.Now()
-			if err := store.Put(cache.Entry{Query: "test", Page: 1, Status: 200, FetchedAt: now.Add(-tc.age), Body: []byte(body)}); err != nil {
+			if err := store.Put(cache.Entry{Key: cache.SearchKey(source.Anna, "test", 1), Query: "test", Page: 1, Status: 200, FetchedAt: now.Add(-tc.age), Body: []byte(body)}); err != nil {
 				t.Fatal(err)
 			}
 			search := newSearcher(config.Config{}, nil, store, func(context.Context, config.Config, string, *fetch.Client) (string, error) {
@@ -75,7 +76,7 @@ func TestSearchRefetchesUnparseableFreshCache(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			store := cache.Open(t.TempDir())
 			now := time.Now()
-			if err := store.Put(cache.Entry{Query: "test", Page: 1, Status: 200, FetchedAt: now.Add(-time.Minute), Body: []byte(body)}); err != nil {
+			if err := store.Put(cache.Entry{Key: cache.SearchKey(source.Anna, "test", 1), Query: "test", Page: 1, Status: 200, FetchedAt: now.Add(-time.Minute), Body: []byte(body)}); err != nil {
 				t.Fatal(err)
 			}
 			resolveCalls, lookupCalls := 0, 0
@@ -101,7 +102,7 @@ func TestSearchRefetchesUnparseableFreshCache(t *testing.T) {
 				if err != nil || len(outcome.Books) != 1 || outcome.Cached {
 					t.Fatalf("outcome = %#v, error = %v", outcome, err)
 				}
-				entry, ok := store.Get("test", 1)
+				entry, ok := store.Get(cache.SearchKey(source.Anna, "test", 1))
 				if !ok || string(entry.Body) != card || !entry.FetchedAt.Equal(now) {
 					t.Fatalf("stored entry = %#v, exists = %v", entry, ok)
 				}
@@ -124,7 +125,7 @@ func TestSearchStaleCacheFallback(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			store := cache.Open(t.TempDir())
 			now := time.Now()
-			if err := store.Put(cache.Entry{Query: "test", Page: 1, Status: 200, FetchedAt: now.Add(-3 * time.Hour), Body: []byte(card)}); err != nil {
+			if err := store.Put(cache.Entry{Key: cache.SearchKey(source.Anna, "test", 1), Query: "test", Page: 1, Status: 200, FetchedAt: now.Add(-3 * time.Hour), Body: []byte(card)}); err != nil {
 				t.Fatal(err)
 			}
 			client := fetch.New(fetch.WithLookup(func(context.Context, string) (int, []byte, bool) {
@@ -180,7 +181,7 @@ func TestSearchCachesSuccessfulResults(t *testing.T) {
 	if err != nil || outcome.Cached || len(outcome.Books) != 1 {
 		t.Fatalf("outcome = %#v, error = %v", outcome, err)
 	}
-	entry, ok := store.Get("test", 1)
+	entry, ok := store.Get(cache.SearchKey(source.Anna, "test", 1))
 	if !ok || entry.Status != 200 || !entry.FetchedAt.Equal(now) || string(entry.Body) != card {
 		t.Fatalf("stored entry = %#v, exists = %v", entry, ok)
 	}
@@ -190,7 +191,7 @@ func TestSearchParseErrorKeepsCache(t *testing.T) {
 	store := cache.Open(t.TempDir())
 	old := []byte(card)
 	now := time.Now()
-	if err := store.Put(cache.Entry{Query: "test", Page: 1, Status: 200, FetchedAt: now.Add(-3 * time.Hour), Body: old}); err != nil {
+	if err := store.Put(cache.Entry{Key: cache.SearchKey(source.Anna, "test", 1), Query: "test", Page: 1, Status: 200, FetchedAt: now.Add(-3 * time.Hour), Body: old}); err != nil {
 		t.Fatal(err)
 	}
 	client := fetch.New(fetch.WithLookup(func(context.Context, string) (int, []byte, bool) {
@@ -204,7 +205,7 @@ func TestSearchParseErrorKeepsCache(t *testing.T) {
 	if err == nil || outcome.Cached || string(outcome.Body) != "<div>Showing 2 results on this page</div>"+card {
 		t.Fatalf("outcome = %#v, error = %v", outcome, err)
 	}
-	entry, ok := store.Get("test", 1)
+	entry, ok := store.Get(cache.SearchKey(source.Anna, "test", 1))
 	if !ok || string(entry.Body) != string(old) {
 		t.Fatalf("cache changed: %#v, exists = %v", entry, ok)
 	}
@@ -213,7 +214,7 @@ func TestSearchParseErrorKeepsCache(t *testing.T) {
 func TestSearchNoCacheSkipsReadAndStillWrites(t *testing.T) {
 	store := cache.Open(t.TempDir())
 	now := time.Now()
-	if err := store.Put(cache.Entry{Query: "test", Page: 1, Status: 200, FetchedAt: now, Body: []byte("old")}); err != nil {
+	if err := store.Put(cache.Entry{Key: cache.SearchKey(source.Anna, "test", 1), Query: "test", Page: 1, Status: 200, FetchedAt: now, Body: []byte("old")}); err != nil {
 		t.Fatal(err)
 	}
 	client := fetch.New(fetch.WithLookup(func(context.Context, string) (int, []byte, bool) {
@@ -227,7 +228,7 @@ func TestSearchNoCacheSkipsReadAndStillWrites(t *testing.T) {
 	if err != nil || outcome.Cached || len(outcome.Books) != 1 {
 		t.Fatalf("outcome = %#v, error = %v", outcome, err)
 	}
-	entry, ok := store.Get("test", 1)
+	entry, ok := store.Get(cache.SearchKey(source.Anna, "test", 1))
 	if !ok || string(entry.Body) != card {
 		t.Fatalf("stored entry = %#v, exists = %v", entry, ok)
 	}

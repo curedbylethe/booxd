@@ -6,34 +6,56 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/curedbylethe/booxd/internal/source"
 )
 
 func TestKeys(t *testing.T) {
-	if Key(" Crime   Punishment ", 1) != Key("crime punishment", 1) {
-		t.Fatal("normalised queries must share a key")
+	anna, zlib := source.Ref{Source: source.Anna, ID: "1234"}, source.Ref{Source: source.ZLibrary, ID: "1234", Hash: "ab"}
+	tests := []struct {
+		name string
+		a, b string
+		same bool
+	}{
+		{"normalised queries share a key", SearchKey(source.Anna, " Crime   Punishment ", 1), SearchKey(source.Anna, "crime punishment", 1), true},
+		{"pages differ", SearchKey(source.Anna, "q", 1), SearchKey(source.Anna, "q", 2), false},
+		{"queries differ", SearchKey(source.Anna, "q", 1), SearchKey(source.Anna, "other", 1), false},
+		{"sources differ", SearchKey(source.Anna, "q", 1), SearchKey(source.ZLibrary, "q", 1), false},
+		{"same id across sources differs", RefKey(anna), RefKey(zlib), false},
+		{"hash differs", RefKey(zlib), RefKey(source.Ref{Source: source.ZLibrary, ID: "1234", Hash: "cd"}), false},
+		{"search and detail differ", SearchKey(source.Anna, "1234", 0), RefKey(anna), false},
+		{"identity is hashed as given", Key("a"), Key("a"), true},
 	}
-	if Key("crime punishment", 1) == Key("crime punishment", 2) || Key("crime punishment", 1) == Key("other", 1) {
-		t.Fatal("distinct pages and queries need distinct keys")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if (tc.a == tc.b) != tc.same {
+				t.Fatalf("keys %q and %q: same=%t, want %t", tc.a, tc.b, tc.a == tc.b, tc.same)
+			}
+		})
+	}
+	if Key("A") == Key("a") {
+		t.Fatal("Key must not normalise")
 	}
 }
 
 func TestStorePutGetAndRejectBadEntries(t *testing.T) {
 	dir := t.TempDir()
 	store := Open(dir)
-	want := Entry{Query: "Crime  Punishment", Page: 1, Status: 200, FetchedAt: time.Now(), Body: []byte("body")}
+	key := SearchKey(source.Anna, "Crime  Punishment", 1)
+	want := Entry{Key: key, Query: "Crime  Punishment", Page: 1, Status: 200, FetchedAt: time.Now(), Body: []byte("body")}
 	if err := store.Put(want); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(dir, Key(want.Query, want.Page)+".json")
+	path := filepath.Join(dir, key+".json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decoded map[string]json.RawMessage
-	if err := json.Unmarshal(data, &decoded); err != nil || decoded["fetched_at"] == nil {
-		t.Fatalf("fetched_at missing or invalid JSON: %v", err)
+	if err := json.Unmarshal(data, &decoded); err != nil || decoded["fetched_at"] == nil || decoded["key"] == nil {
+		t.Fatalf("fetched_at or key missing or invalid JSON: %v", err)
 	}
-	got, ok := store.Get("crime punishment", 1)
+	got, ok := store.Get(key)
 	if !ok || string(got.Body) != "body" {
 		t.Fatalf("Get() = %#v, %v", got, ok)
 	}
@@ -43,20 +65,38 @@ func TestStorePutGetAndRejectBadEntries(t *testing.T) {
 	if err := os.WriteFile(path, []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := store.Get(want.Query, want.Page); ok {
+	if _, ok := store.Get(key); ok {
 		t.Fatal("corrupt entry must miss")
 	}
-	if err := store.Put(want); err != nil {
-		t.Fatal(err)
-	}
 	wrong := want
-	wrong.Query = "other"
+	wrong.Key = SearchKey(source.ZLibrary, "Crime  Punishment", 1)
 	data, _ = json.Marshal(wrong)
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := store.Get(want.Query, want.Page); ok {
-		t.Fatal("mismatched entry must miss")
+	if _, ok := store.Get(key); ok {
+		t.Fatal("an entry stored under another key must miss")
+	}
+}
+
+func TestPutNeedsKey(t *testing.T) {
+	dir := t.TempDir()
+	if err := Open(dir).Put(Entry{Query: "q"}); err == nil {
+		t.Fatal("Put without a key must fail")
+	}
+	if files, _ := filepath.Glob(filepath.Join(dir, "*")); len(files) != 0 {
+		t.Fatalf("files written: %v", files)
+	}
+}
+
+func TestSourcesDoNotShareEntries(t *testing.T) {
+	store := Open(t.TempDir())
+	annaKey, zlibKey := SearchKey(source.Anna, "q", 1), SearchKey(source.ZLibrary, "q", 1)
+	if err := store.Put(Entry{Key: annaKey, Query: "q", Page: 1, Body: []byte("anna")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := store.Get(zlibKey); ok {
+		t.Fatal("a zlibrary lookup must not see an anna entry")
 	}
 }
 
@@ -64,11 +104,11 @@ func TestSweep(t *testing.T) {
 	dir := t.TempDir()
 	store := Open(dir)
 	for _, query := range []string{"old", "new"} {
-		if err := store.Put(Entry{Query: query, Page: 1}); err != nil {
+		if err := store.Put(Entry{Key: SearchKey(source.Anna, query, 1), Query: query, Page: 1}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	old := filepath.Join(dir, Key("old", 1)+".json")
+	old := filepath.Join(dir, SearchKey(source.Anna, "old", 1)+".json")
 	if err := os.Chtimes(old, time.Now().Add(-31*24*time.Hour), time.Now().Add(-31*24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +118,7 @@ func TestSweep(t *testing.T) {
 	if _, err := os.Stat(old); !os.IsNotExist(err) {
 		t.Fatal("old entry was not removed")
 	}
-	if _, ok := store.Get("new", 1); !ok {
+	if _, ok := store.Get(SearchKey(source.Anna, "new", 1)); !ok {
 		t.Fatal("recent entry was removed")
 	}
 	if err := Open(filepath.Join(dir, "missing")).Sweep(SweepAge); err != nil {

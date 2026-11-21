@@ -4,11 +4,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/curedbylethe/booxd/internal/source"
 )
 
 const (
@@ -16,7 +19,11 @@ const (
 	SweepAge   = 30 * 24 * time.Hour
 )
 
+// Entry is one cached response. Key is the identity it was stored under;
+// Query and Page describe the subject for debugging only. Store only public
+// responses: nothing tied to a session or account belongs here.
 type Entry struct {
+	Key       string    `json:"key"`
 	Query     string    `json:"query"`
 	Page      int       `json:"page"`
 	Status    int       `json:"status"`
@@ -41,27 +48,43 @@ func Normalise(query string) string {
 	return strings.ToLower(strings.Join(strings.Fields(query), " "))
 }
 
-// Key returns the filename stem for a normalised query and page.
-func Key(query string, page int) string {
-	sum := sha256.Sum256([]byte(Normalise(query) + "\x00" + strconv.Itoa(page)))
+// Key returns the filename stem for one identity string. Callers build their
+// own identity; Key does not normalise.
+func Key(identity string) string {
+	sum := sha256.Sum256([]byte(identity))
 	return hex.EncodeToString(sum[:])
 }
+
+// SearchKey identifies a cached search page by provider, normalised query and
+// page. A future search option that changes results is added here.
+func SearchKey(src source.Name, query string, page int) string {
+	return Key("search\x00" + string(src) + "\x00" + Normalise(query) + "\x00" + strconv.Itoa(page))
+}
+
+// RefKey identifies a cached detail page by its provider-qualified reference.
+func RefKey(ref source.Ref) string { return Key("book\x00" + ref.Key()) }
 
 type Store struct{ dir string }
 
 // Open returns a store rooted at dir.
 func Open(dir string) *Store { return &Store{dir: dir} }
 
-func (s *Store) Get(query string, page int) (Entry, bool) {
+// Get returns the entry stored under key, or false when the file is missing,
+// unreadable, or was stored under a different key.
+func (s *Store) Get(key string) (Entry, bool) {
 	var entry Entry
-	data, err := os.ReadFile(filepath.Join(s.dir, Key(query, page)+".json"))
-	if err != nil || json.Unmarshal(data, &entry) != nil || Normalise(entry.Query) != Normalise(query) || entry.Page != page {
+	data, err := os.ReadFile(filepath.Join(s.dir, key+".json"))
+	if err != nil || json.Unmarshal(data, &entry) != nil || entry.Key != key {
 		return Entry{}, false
 	}
 	return entry, true
 }
 
+// Put stores entry under entry.Key.
 func (s *Store) Put(entry Entry) error {
+	if entry.Key == "" {
+		return errors.New("cache: entry has no key")
+	}
 	if err := os.MkdirAll(s.dir, 0o755); err != nil {
 		return err
 	}
@@ -77,7 +100,7 @@ func (s *Store) Put(entry Entry) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), filepath.Join(s.dir, Key(entry.Query, entry.Page)+".json"))
+	return os.Rename(tmp.Name(), filepath.Join(s.dir, entry.Key+".json"))
 }
 
 func (s *Store) Sweep(maxAge time.Duration) error {
