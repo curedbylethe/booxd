@@ -54,6 +54,12 @@ type action struct {
 	search   bool
 	detail   bool
 	download bool
+	cancel   bool
+}
+
+// downloading reports whether the shown book's download is running.
+func (m model) downloading() bool {
+	return m.download.busy && m.download.ref == m.book.ID
 }
 
 // showsDetail reports whether the frame shows ref's detail screen.
@@ -190,6 +196,10 @@ func handleKey(m model, ev *tcell.EventKey) (model, action) {
 	case stateDetail:
 		switch ev.Key() {
 		case tcell.KeyEscape:
+			// The first Esc only cancels, so the outcome stays in view.
+			if m.downloading() {
+				return m, action{cancel: true}
+			}
 			m.view = stateResults
 			m.detailOffset = 0
 			m.status = ""

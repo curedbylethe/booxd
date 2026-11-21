@@ -97,7 +97,7 @@ See [Termux setup](docs/termux.md) for Boox details. See [CONTRIBUTING.md](CONTR
 | `Enter` | Search or open selected book | Query or results |
 | `Tab` | Switch source: `anna`, then `zlibrary`, then `anna`; on results, search the query again | Query or results |
 | `d` | Download the book | Details of a Z-Library book |
-| `Esc` | Go back | Query, results, details |
+| `Esc` | Go back; on a book that is downloading, cancel the download first | Query, results, details |
 | `Backspace`, `Delete` | Edit query | Query |
 | `Left`, `Right`, `Home`, `End` | Move caret | Query |
 | `Up`, `Down`, `j`, `k` | Move selection | Results |
@@ -107,7 +107,7 @@ See [Termux setup](docs/termux.md) for Boox details. See [CONTRIBUTING.md](CONTR
 
 The search line names the selected source, for example `search [zlibrary]: dune`. The TUI starts on `anna`, or on the `tui --source` value; a change made with `Tab` lasts until you quit and is not saved to config.
 
-The details screen has a `download:` row. It shows `-` before a download, `…` while it starts, then the percentage in whole steps; when the server does not report a size, `…` stays until the download ends. When the download ends, it shows `saved <path>`, `already downloaded`, `session expired`, `quota exhausted`, or `failed`; a missing Z-Library setting shows `failed:` and the same message as the CLI. On an Anna's Archive book, the row shows `zlibrary only` and `d` does nothing. Searches and downloads run in the background, so keys keep working; when you search again, the result of an older search is discarded.
+The details screen has a `download:` row. It shows `-` before a download, `…` while it starts, then the percentage in whole steps; when the server does not report a size, `…` stays until the download ends. When the download ends, it shows `saved <path>`, `already downloaded`, `session expired`, `quota exhausted`, `cancelled`, or `failed`. While a download runs, the footer reads `esc cancel`; the first `Esc` cancels it and keeps the details on screen, and a second `Esc` goes back. A missing Z-Library setting shows `failed:` and the same message as the CLI. On an Anna's Archive book, the row shows `zlibrary only` and `d` does nothing. Searches and downloads run in the background, so keys keep working; when you search again, the result of an older search is discarded.
 
 ## CLI reference
 

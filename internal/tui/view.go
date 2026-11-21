@@ -123,6 +123,9 @@ func drawDetail(screen tcell.Screen, m model, width, height int) {
 		screen.PutStrStyled(0, descriptionRow+1+i, truncate(wrapped[index], width), m.theme.base)
 	}
 	status := "d download · esc back · j/k scroll · q quit"
+	if m.downloading() {
+		status = "esc cancel · j/k scroll · q quit"
+	}
 	statusStyle := m.theme.dim
 	if m.statusErr {
 		status = m.status
@@ -152,7 +155,7 @@ func drawHelp(screen tcell.Screen, m model, width, height int) {
 		"Enter submit search or open selected result",
 		"j / Down move down",
 		"k / Up move up",
-		"Esc go back",
+		"Esc go back, or cancel a running download first",
 		"Tab switch source: anna, zlibrary",
 		"d download a zlibrary book from its details",
 		"q quit",
