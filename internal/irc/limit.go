@@ -42,17 +42,17 @@ func (systemClock) Wait(ctx context.Context, d time.Duration) error {
 // gateSend admits one chat send to target and records its cost. It runs before
 // the write and writes nothing itself, so a rejection never reaches the socket.
 // The timestamp is set even when the write then fails, so a failing socket
-// cannot be hammered.
-func (c *Client) gateSend(target string) error {
+// cannot be hammered. It returns the token that owns the acquired slot.
+func (c *Client) gateSend(target string) (uint64, error) {
 	c.limitMu.Lock()
 	defer c.limitMu.Unlock()
 	now := c.clock.Now()
 	if now.Before(c.next) {
-		return fmt.Errorf("%w: %s remaining", ErrSendTooSoon, c.next.Sub(now))
+		return 0, fmt.Errorf("%w: %s remaining", ErrSendTooSoon, c.next.Sub(now))
 	}
 	// An expired slot is free again; a zero searchTimeout never expires.
 	if c.searchNick != "" && (c.searchTimeout <= 0 || now.Before(c.searchUntil)) {
-		return fmt.Errorf("%w: waiting on %s", ErrSearchPending, c.searchNick)
+		return 0, fmt.Errorf("%w: waiting on %s", ErrSearchPending, c.searchNick)
 	}
 	c.next = now.Add(c.minSendGap)
 	c.searchUntil = time.Time{}
@@ -60,13 +60,16 @@ func (c *Client) gateSend(target string) error {
 		c.searchUntil = now.Add(c.searchTimeout)
 	}
 	c.searchNick = target
-	return nil
+	c.searchSeq++
+	return c.searchSeq, nil
 }
 
-// ReleaseSearch frees the in-flight search slot. It is safe to call when no
-// search is pending; it does not touch the send gap.
-func (c *Client) ReleaseSearch() {
-	c.releaseSlot(func(string) bool { return true })
+// ReleaseSearch frees the in-flight search slot when token still owns it: a
+// slot the transport already freed, or a later send acquired after this one
+// expired, stays untouched. It is safe to call when no search is pending; it
+// does not touch the send gap.
+func (c *Client) ReleaseSearch(token uint64) {
+	c.releaseSlot(func(string) bool { return c.searchSeq == token })
 }
 
 // releaseSearchFrom frees a nick target when that nick answers, and a channel

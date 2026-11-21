@@ -69,6 +69,7 @@ type Client struct {
 	next          time.Time
 	searchNick    string
 	searchUntil   time.Time
+	searchSeq     uint64
 }
 
 // Dial connects, registers the nick, and joins the channel. It returns only
@@ -167,15 +168,18 @@ func (c *Client) Nick() string { return c.nick }
 func (c *Client) Channel() string { return c.channel }
 
 // Say writes one PRIVMSG line. It returns ErrSendTooSoon inside MinSendGap and
-// ErrSearchPending while an earlier send awaits its reply.
-func (c *Client) Say(ctx context.Context, target, text string) error {
+// ErrSearchPending while an earlier send awaits its reply. On success it
+// returns the token that owns the slot the send acquired; pass that token to
+// ReleaseSearch to free the slot.
+func (c *Client) Say(ctx context.Context, target, text string) (uint64, error) {
 	return c.privmsg(ctx, target, text)
 }
 
 // CTCP writes a PRIVMSG whose payload is wrapped in \x01 markers, under the
 // same gap and search slot as Say.
 func (c *Client) CTCP(ctx context.Context, target, payload string) error {
-	return c.privmsg(ctx, target, "\x01"+payload+"\x01")
+	_, err := c.privmsg(ctx, target, "\x01"+payload+"\x01")
+	return err
 }
 
 // Err returns the first terminal error, or ErrClosed after Close.
@@ -218,17 +222,18 @@ func (c *Client) shutdown(quit bool) error {
 }
 
 // privmsg is the only path that builds a PRIVMSG line.
-func (c *Client) privmsg(ctx context.Context, target, body string) error {
+func (c *Client) privmsg(ctx context.Context, target, body string) (uint64, error) {
 	if err := ctx.Err(); err != nil {
-		return err
+		return 0, err
 	}
 	if strings.ContainsAny(body, "\r\n") {
-		return fmt.Errorf("irc: refusing to send %q: CR or LF", body)
+		return 0, fmt.Errorf("irc: refusing to send %q: CR or LF", body)
 	}
-	if err := c.gateSend(target); err != nil {
-		return err
+	slot, err := c.gateSend(target)
+	if err != nil {
+		return 0, err
 	}
-	return c.send("PRIVMSG " + target + " :" + body)
+	return slot, c.send("PRIVMSG " + target + " :" + body)
 }
 
 // send writes one complete line. It is the only writer of the connection.

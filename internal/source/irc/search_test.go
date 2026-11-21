@@ -257,3 +257,59 @@ func TestSearchRejectedSendKeepsHeldSlot(t *testing.T) {
 		t.Fatalf("ReleaseSearch calls = %d, want 1 after the holder returned", n)
 	}
 }
+
+func TestSearchCancelAfterTransportFreesSlot(t *testing.T) {
+	f := newFakeClient("#ebooks")
+	s := testSearcher(f)
+	s.ZipWait = 2 * time.Second
+
+	// One search holds the slot; nothing answers it.
+	ctxA, cancelA := context.WithCancel(context.Background())
+	defer cancelA()
+	doneA := make(chan error, 1)
+	go func() {
+		_, err := s.Search(ctxA, "first")
+		doneA <- err
+	}()
+	f.waitSays(t, 1)
+
+	// The transport frees that slot on its own — timeout expiry or an
+	// unrelated matching message — and a second search acquires it.
+	f.transportFree()
+	ctxB, cancelB := context.WithCancel(context.Background())
+	defer cancelB()
+	doneB := make(chan error, 1)
+	go func() {
+		_, err := s.Search(ctxB, "second")
+		doneB <- err
+	}()
+	f.waitSays(t, 1)
+
+	// The first search giving up must not clear the second search's slot.
+	cancelA()
+	select {
+	case err := <-doneA:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("first Search error = %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("first Search did not finish")
+	}
+	if n := f.releaseCount(); n != 0 {
+		t.Fatalf("ReleaseSearch calls = %d, want 0: a stale token must not clear the later slot", n)
+	}
+
+	// The second search still holds the slot and frees it when it gives up.
+	cancelB()
+	select {
+	case err := <-doneB:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("second Search error = %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("second Search did not finish")
+	}
+	if n := f.releaseCount(); n != 1 {
+		t.Fatalf("ReleaseSearch calls = %d, want 1 after the holder returned", n)
+	}
+}

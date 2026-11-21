@@ -19,9 +19,11 @@ const (
 // production code independent of internal/irc; only a test asserts the fit.
 type Client interface {
 	Channel() string
-	Say(ctx context.Context, target, text string) error
+	// Say returns the token owning the slot the send acquired.
+	Say(ctx context.Context, target, text string) (slot uint64, err error)
 	DCC() <-chan dcc.Offer
-	ReleaseSearch()
+	// ReleaseSearch frees the slot only while the token still owns it.
+	ReleaseSearch(slot uint64)
 }
 
 // Searcher sends searches and reads the archives that answer them.

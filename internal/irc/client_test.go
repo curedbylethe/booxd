@@ -226,7 +226,7 @@ func TestSay(t *testing.T) {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
-				if err := client.Say(context.Background(), "#ebooks", fmt.Sprintf("book %d", i)); err != nil {
+				if _, err := client.Say(context.Background(), "#ebooks", fmt.Sprintf("book %d", i)); err != nil {
 					t.Errorf("Say %d: %v", i, err)
 				}
 			}(i)
@@ -256,7 +256,7 @@ func TestSay(t *testing.T) {
 		defer func() { _ = client.Close() }()
 		f.collect(3)
 
-		if err := client.Say(context.Background(), "#ebooks", "\nQUIT"); err == nil {
+		if _, err := client.Say(context.Background(), "#ebooks", "\nQUIT"); err == nil {
 			t.Fatal("Say accepted a newline")
 		}
 		if err := client.CTCP(context.Background(), "#ebooks", "VERSION\r\nQUIT"); err == nil {

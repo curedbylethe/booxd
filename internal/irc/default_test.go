@@ -10,19 +10,19 @@ import (
 
 // The exported API is fixed: a rename or removal breaks this file's build.
 var (
-	_ Config                                               = Config{}
-	_ *Client                                              = (*Client)(nil)
-	_ func(context.Context, Config) (*Client, error)       = Dial
-	_ func(*Client) string                                 = (*Client).Nick
-	_ func(*Client) string                                 = (*Client).Channel
-	_ func(*Client, context.Context, string, string) error = (*Client).Say
-	_ func(*Client, context.Context, string, string) error = (*Client).CTCP
-	_ func(*Client) <-chan Message                         = (*Client).Messages
-	_ func(*Client) <-chan dcc.Offer                       = (*Client).DCC
-	_ func(*Client) error                                  = (*Client).Err
-	_ func(*Client) error                                  = (*Client).Close
-	_ func(string) (Message, error)                        = Parse
-	_ Message                                              = Message{}
+	_ Config                                                         = Config{}
+	_ *Client                                                        = (*Client)(nil)
+	_ func(context.Context, Config) (*Client, error)                 = Dial
+	_ func(*Client) string                                           = (*Client).Nick
+	_ func(*Client) string                                           = (*Client).Channel
+	_ func(*Client, context.Context, string, string) (uint64, error) = (*Client).Say
+	_ func(*Client, context.Context, string, string) error           = (*Client).CTCP
+	_ func(*Client) <-chan Message                                   = (*Client).Messages
+	_ func(*Client) <-chan dcc.Offer                                 = (*Client).DCC
+	_ func(*Client) error                                            = (*Client).Err
+	_ func(*Client) error                                            = (*Client).Close
+	_ func(string) (Message, error)                                  = Parse
+	_ Message                                                        = Message{}
 )
 
 func TestDefaultConfig(t *testing.T) {
