@@ -36,6 +36,14 @@ The panel is the constraint, not the terminal. A full refresh stays visible for 
 
 **Guard:** `TestFrameCount`. Review check: `grep -n '\.Show()' internal/tui/tui.go` should show only `paint`.
 
+## Show the page as text and repaint it twice
+
+**Rule:** The result page marker is text in the footer, as in `3 results · page 2`; never a spinner, bar, countdown, or animation, and never on the search row. A page request repaints once when it starts, with the static `…`, and once when its reply applies. A key that cannot change the page, such as `p` on page 1, does not repaint. An empty or failed page changes only the footer; the previous rows stay.
+
+**Why:** A moving marker or an extra frame is a visible refresh on every page change. The search row keeps its caret in place across sources and pages.
+
+**Guard:** `TestFrameCount` (the `n` and `p` cases), `TestMonoFrameParity`, and `TestPageMarkerAndHelp`.
+
 ## Make colour additive
 
 **Rule:** `--mono` and non-empty `NO_COLOR` remove colour. Keep runes and attributes unchanged.
@@ -54,7 +62,7 @@ The panel is the constraint, not the terminal. A full refresh stays visible for 
 
 ## Keep the detail pane fixed
 
-**Rule:** The detail view keeps nine metadata rows on rows 0–8, a blank row 9, the dim `description:` label on row 10, the wrapped description on the eleven rows below it at 80x24, and the status or footer on the last row. `j`/`k` and `Down`/`Up` scroll the description one line; the nine metadata rows never move. An empty description shows `-` on row 11. A description that fits does not scroll.
+**Rule:** The detail view keeps ten field rows on rows 0–9 (the last is `download:`), a blank row 10, the dim `description:` label on row 11, the wrapped description on the ten rows from row 12 at 80x24, and the status or footer on the last row. `j`/`k` and `Down`/`Up` scroll the description one line; the ten field rows never move. An empty description shows `-` on row 12. A description that fits does not scroll.
 
 **Why:** Scrolling the whole panel would hide the metadata and add redraw noise; a fixed body keeps the frame stable on e-ink.
 
