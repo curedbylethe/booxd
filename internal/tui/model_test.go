@@ -170,6 +170,18 @@ func TestTabSwitchClearsStaleResults(t *testing.T) {
 	}
 }
 
+func TestTabOnQueryScreenDropsInFlightSearch(t *testing.T) {
+	m := model{view: stateQuery, searchSeq: 1, query: "q", status: "…"}
+	m, _ = handleKey(m, tcell.NewEventKey(tcell.KeyTab, 0, tcell.ModNone))
+	m, applied := applySearch(m, 1, []parse.Book{{ID: annaRef("stale")}}, nil)
+	if applied || m.books != nil {
+		t.Fatalf("anna result applied after switching source: applied=%t books=%v", applied, m.books)
+	}
+	if m.status != "" {
+		t.Fatalf("status=%q, want it cleared with the dropped search", m.status)
+	}
+}
+
 func TestDetailScrollClamps(t *testing.T) {
 	var lines []string
 	for i := 0; i < 30; i++ {

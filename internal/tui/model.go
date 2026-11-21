@@ -104,7 +104,12 @@ func handleKey(m model, ev *tcell.EventKey) (model, action) {
 		case tcell.KeyTab:
 			// The shown results must not survive into the new source: drop
 			// them so a pending or failed search leaves nothing to select.
+			// Bumping searchSeq also drops a search still running on the old
+			// source, and its "…" status with it.
 			m.source = nextSource(m.source)
+			m.searchSeq++
+			m.status = ""
+			m.statusErr = false
 			m.books = nil
 			m.selected = 0
 			m.offset = 0
