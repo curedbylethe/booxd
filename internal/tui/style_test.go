@@ -59,7 +59,16 @@ func TestMonoStatusIsObservable(t *testing.T) {
 }
 
 func TestMonoFrameParity(t *testing.T) {
-	mono, colour := drawThemeStatus(t, true), drawThemeStatus(t, false)
+	assertSameFrame(t, drawThemeStatus(t, true), drawThemeStatus(t, false))
+	// A page change carries the same runes in both themes.
+	page := func(mono bool) []tcell.SimCell {
+		return drawThemeModel(t, model{view: stateResults, page: 2, books: booksForTest(3), height: 24, status: "3 results · page 2", theme: newTheme(mono)})
+	}
+	assertSameFrame(t, page(true), page(false))
+}
+
+func assertSameFrame(t *testing.T, mono, colour []tcell.SimCell) {
+	t.Helper()
 	if len(mono) != len(colour) {
 		t.Fatalf("frame cell counts differ: %d != %d", len(mono), len(colour))
 	}
@@ -84,13 +93,17 @@ func strip(style tcell.Style) tcell.Style {
 
 func drawThemeStatus(t *testing.T, mono bool) []tcell.SimCell {
 	t.Helper()
+	return drawThemeModel(t, model{view: stateResults, height: 24, status: "offline", statusErr: true, theme: newTheme(mono)})
+}
+
+func drawThemeModel(t *testing.T, m model) []tcell.SimCell {
+	t.Helper()
 	screen := tcell.NewSimulationScreen("UTF-8")
 	if err := screen.Init(); err != nil {
 		t.Fatal(err)
 	}
 	defer screen.Fini()
 	screen.SetSize(80, 24)
-	m := model{view: stateResults, height: 24, status: "offline", statusErr: true, theme: newTheme(mono)}
 	draw(screen, m)
 	screen.Show()
 	cells, _, _ := screen.GetContents()

@@ -56,6 +56,7 @@ func TestFrameAudit(t *testing.T) {
 		{name: "results twenty-two books scrolled", width: 80, height: 24, model: resultFrame(22, 21, 11), selectedRows: [2]int{21, 22}},
 		{name: "results omit empty metadata", width: 80, height: 24, model: model{view: stateResults, books: []parse.Book{sparseBook}, selected: 0, height: 24, theme: style}, selectedRows: [2]int{1, 2}, wantMeta: "epub · 1 MB"},
 		{name: "results empty", width: 80, height: 24, model: resultFrame(0, 0, 0), selectedRows: [2]int{-1, -1}},
+		{name: "results page marker", width: 80, height: 24, model: model{view: stateResults, page: 2, books: booksForTest(3), status: "3 results · page 2", height: 24, theme: style}, selectedRows: [2]int{1, 2}},
 		{name: "results error", width: 80, height: 24, model: model{view: stateResults, status: "offline", statusErr: true, height: 24, theme: style}, selectedRows: [2]int{-1, -1}},
 		{name: "detail", width: 80, height: 24, model: model{view: stateDetail, books: []parse.Book{book}, book: book, height: 24, theme: style}, selectedRows: [2]int{-1, -1}, wantDownload: "zlibrary only"},
 		{name: "download idle", width: 80, height: 24, model: model{view: stateDetail, books: []parse.Book{zbook}, book: zbook, hasDownload: true, height: 24, theme: style}, selectedRows: [2]int{-1, -1}, wantDownload: "-"},
@@ -169,6 +170,30 @@ func TestFrameAudit(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestPageMarkerAndHelp(t *testing.T) {
+	rows := func(m model) []string {
+		screen := newSimulation(t, 80, 24)
+		draw(screen, m)
+		screen.Show()
+		lines, _, _, _ := simLines(screen)
+		return lines
+	}
+	style := newTheme(false)
+	got := rows(model{view: stateResults, page: 2, books: booksForTest(3), status: "3 results · page 2", height: 24, theme: style})
+	if want := "3 results · page 2"; strings.TrimRight(got[23], " ") != want {
+		t.Fatalf("footer=%q, want %q", got[23], want)
+	}
+	if strings.Contains(got[0], "page") {
+		t.Fatalf("search row carries the page: %q", got[0])
+	}
+	help := strings.Join(rows(model{view: stateResults, help: true, height: 24, theme: style}), "\n")
+	for _, want := range []string{"n next result page", "p previous result page"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("help lacks %q:\n%s", want, help)
+		}
 	}
 }
 
