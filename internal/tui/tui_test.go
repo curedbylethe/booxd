@@ -98,7 +98,7 @@ func TestRunScreenDetailUsesCallback(t *testing.T) {
 	sim.InjectKey(tcell.KeyEnter, 0, tcell.ModNone)
 	sim.InjectKey(tcell.KeyRune, 'q', tcell.ModNone)
 	searches, details := 0, 0
-	book := parse.Book{ID: "42", Title: "A title", Author: "An author", Year: "2024", Format: "epub", Size: "1 MB", Publisher: "Press", Language: "en", URL: "/books/42"}
+	book := parse.Book{ID: annaRef("42"), Title: "A title", Author: "An author", Year: "2024", Format: "epub", Size: "1 MB", Publisher: "Press", Language: "en", URL: "/books/42"}
 	detail := func(context.Context, string) (parse.Detail, error) {
 		details++
 		return parse.Detail{Description: "First line"}, nil
@@ -126,7 +126,7 @@ func TestRunScreenDetailUsesCallback(t *testing.T) {
 
 func TestRunScreenDetailLoadingAndError(t *testing.T) {
 	book := func() []parse.Book {
-		return []parse.Book{{ID: "42", Title: "A title", Author: "An author", Year: "2024", Format: "epub", Size: "1 MB", Publisher: "Press", Language: "en", URL: "/books/42"}}
+		return []parse.Book{{ID: annaRef("42"), Title: "A title", Author: "An author", Year: "2024", Format: "epub", Size: "1 MB", Publisher: "Press", Language: "en", URL: "/books/42"}}
 	}
 	open := func(sim tcell.SimulationScreen) {
 		pressRune(sim, 'x')
@@ -181,7 +181,7 @@ func TestRunScreenDetailNilCallbackAndReopen(t *testing.T) {
 	sim.InjectKey(tcell.KeyEnter, 0, tcell.ModNone)
 	sim.InjectKey(tcell.KeyRune, 'q', tcell.ModNone)
 	if err := runScreen(context.Background(), sim, func(context.Context, string) ([]parse.Book, error) {
-		return []parse.Book{{ID: "42", Title: "A title"}}, nil
+		return []parse.Book{{ID: annaRef("42"), Title: "A title"}}, nil
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +199,7 @@ func TestRunScreenDetailNilCallbackAndReopen(t *testing.T) {
 	reopen.InjectKey(tcell.KeyRune, 'q', tcell.ModNone)
 	calls := 0
 	if err := runScreenWithTheme(context.Background(), reopen, func(context.Context, string) ([]parse.Book, error) {
-		return []parse.Book{{ID: "42", Title: "A title"}}, nil
+		return []parse.Book{{ID: annaRef("42"), Title: "A title"}}, nil
 	}, func(context.Context, string) (parse.Detail, error) {
 		calls++
 		return parse.Detail{Description: "Again"}, nil
@@ -223,7 +223,7 @@ func TestRunScreenFailureKeepsPreviousResults(t *testing.T) {
 	err := runScreen(context.Background(), sim, func(context.Context, string) ([]parse.Book, error) {
 		calls++
 		if calls == 1 {
-			return []parse.Book{{ID: "old", Title: "Previous result"}}, nil
+			return []parse.Book{{ID: annaRef("old"), Title: "Previous result"}}, nil
 		}
 		return nil, errors.New("offline")
 	})
@@ -396,7 +396,7 @@ func TestInFlightStatus(t *testing.T) {
 	search := func(context.Context, string) ([]parse.Book, error) {
 		calls++
 		if calls == 1 {
-			return []parse.Book{{ID: "old", Title: "Previous result"}}, nil
+			return []parse.Book{{ID: annaRef("old"), Title: "Previous result"}}, nil
 		}
 		lines, _, _, _ := simLines(screen)
 		status = strings.TrimRight(lines[23], " ")
@@ -557,7 +557,7 @@ func pressRune(screen tcell.SimulationScreen, r rune) {
 func booksForTest(count int) []parse.Book {
 	books := make([]parse.Book, count)
 	for i := range books {
-		books[i] = parse.Book{ID: fmt.Sprint(i), Title: fmt.Sprintf("Title %02d", i), Author: "Author", Year: "2024", Format: "epub", Size: "1 MB"}
+		books[i] = parse.Book{ID: annaRef(fmt.Sprint(i)), Title: fmt.Sprintf("Title %02d", i), Author: "Author", Year: "2024", Format: "epub", Size: "1 MB"}
 	}
 	return books
 }

@@ -88,7 +88,7 @@ func drawDetail(screen tcell.Screen, m model, width, height int) {
 			{"size", b.Size},
 			{"publisher", b.Publisher},
 			{"language", b.Language},
-			{"id", b.ID},
+			{"id", b.ID.String()},
 			{"url", b.URL},
 		}
 		for i, field := range fields {

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/curedbylethe/booxd/internal/source"
 	"golang.org/x/net/html"
 )
 
@@ -27,7 +28,10 @@ const (
 )
 
 // Book is a search result. Missing fields are empty.
-type Book struct{ ID, Slug, Title, Author, Year, Format, Size, Publisher, Language, URL string }
+type Book struct {
+	ID                                                                source.Ref
+	Slug, Title, Author, Year, Format, Size, Publisher, Language, URL string
+}
 
 // Search parses a search page into book records without network access.
 func Search(r io.Reader) ([]Book, error) {
@@ -141,7 +145,7 @@ func parseCard(card *html.Node) Book {
 		path, _, _ = strings.Cut(path, "#")
 		id, slug, ok := strings.Cut(path, "-")
 		if ok && id != "" && strings.Trim(id, "0123456789") == "" {
-			b.ID = id
+			b.ID = source.Ref{Source: source.Anna, ID: id}
 			b.Slug = slug
 		}
 	}

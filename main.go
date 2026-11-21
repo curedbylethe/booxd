@@ -63,8 +63,8 @@ func offerUpdate(args []string, stderr io.Writer) {
 			// a redirected stderr would hide it while the read still blocks.
 			return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stderr.Fd()))
 		},
-		Exec:     update.Restart,
-		Now:      time.Now(),
+		Exec: update.Restart,
+		Now:  time.Now(),
 	})
 }
 
@@ -235,7 +235,7 @@ func monoEnabled(flagMono bool, noColor string) bool {
 
 func printBooks(stdout io.Writer, books []parse.Book) {
 	for _, b := range books {
-		_, _ = fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\t%s\t%s\n", b.ID, b.Title, b.Author, b.Year, b.Format, b.Size)
+		_, _ = fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\t%s\t%s\n", b.ID.String(), b.Title, b.Author, b.Year, b.Format, b.Size)
 	}
 }
 

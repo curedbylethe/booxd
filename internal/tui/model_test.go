@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/curedbylethe/booxd/internal/parse"
+	"github.com/curedbylethe/booxd/internal/source"
 	"github.com/gdamore/tcell/v2"
 )
 
@@ -56,7 +57,7 @@ func TestEmptyQueryHintClearsErrorStyle(t *testing.T) {
 }
 
 func TestHandleKeyStates(t *testing.T) {
-	book := parse.Book{ID: "1"}
+	book := parse.Book{ID: annaRef("1")}
 	tests := []struct {
 		name  string
 		m     model
@@ -106,7 +107,7 @@ func TestHandleKeyStates(t *testing.T) {
 func TestSelectionClampsAndOffsetFollows(t *testing.T) {
 	books := make([]parse.Book, 30)
 	for i := range books {
-		books[i].ID = string(rune('a' + i))
+		books[i].ID = annaRef(string(rune('a' + i)))
 	}
 	m := model{view: stateResults, books: books, height: 24}
 	for i := 0; i < 40; i++ {
@@ -138,10 +139,10 @@ func TestVisibleOffsetResetsWhenAllRowsFit(t *testing.T) {
 }
 
 func TestApplyResultsFailureKeepsRows(t *testing.T) {
-	old := []parse.Book{{ID: "old"}}
+	old := []parse.Book{{ID: annaRef("old")}}
 	m := model{view: stateResults, books: old, selected: 0}
-	m = applyResults(m, []parse.Book{{ID: "new"}}, errors.New("offline"))
-	if m.books[0].ID != "old" || m.status != "offline" {
+	m = applyResults(m, []parse.Book{{ID: annaRef("new")}}, errors.New("offline"))
+	if m.books[0].ID != annaRef("old") || m.status != "offline" {
 		t.Fatalf("got books=%v status=%q", m.books, m.status)
 	}
 }
@@ -151,7 +152,7 @@ func TestDetailScrollClamps(t *testing.T) {
 	for i := 0; i < 30; i++ {
 		lines = append(lines, fmt.Sprintf("line %02d", i))
 	}
-	m := model{view: stateDetail, books: []parse.Book{{ID: "1"}}, description: strings.Join(lines, "\n"), width: 80, height: 24}
+	m := model{view: stateDetail, books: []parse.Book{{ID: annaRef("1")}}, description: strings.Join(lines, "\n"), width: 80, height: 24}
 	j := tcell.NewEventKey(tcell.KeyRune, 'j', tcell.ModNone)
 	k := tcell.NewEventKey(tcell.KeyRune, 'k', tcell.ModNone)
 	for i := 0; i < 40; i++ {
@@ -176,7 +177,7 @@ func TestDetailScrollClamps(t *testing.T) {
 }
 
 func TestDetailScrollNoOpWhenDescriptionFits(t *testing.T) {
-	m := model{view: stateDetail, books: []parse.Book{{ID: "1"}}, description: "short", width: 80, height: 24}
+	m := model{view: stateDetail, books: []parse.Book{{ID: annaRef("1")}}, description: "short", width: 80, height: 24}
 	for _, key := range []*tcell.EventKey{
 		tcell.NewEventKey(tcell.KeyRune, 'j', tcell.ModNone),
 		tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone),
@@ -189,12 +190,12 @@ func TestDetailScrollNoOpWhenDescriptionFits(t *testing.T) {
 }
 
 func TestDetailOffsetResetsOnEnterAndLeave(t *testing.T) {
-	m := model{view: stateResults, books: []parse.Book{{ID: "1"}}, description: "stale", detailOffset: 5}
+	m := model{view: stateResults, books: []parse.Book{{ID: annaRef("1")}}, description: "stale", detailOffset: 5}
 	got, _ := handleKey(m, tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
 	if got.view != stateDetail || got.detailOffset != 0 || got.description != "" {
 		t.Fatalf("enter detail offset=%d description=%q", got.detailOffset, got.description)
 	}
-	m = model{view: stateDetail, books: []parse.Book{{ID: "1"}}, description: "text", detailOffset: 5}
+	m = model{view: stateDetail, books: []parse.Book{{ID: annaRef("1")}}, description: "text", detailOffset: 5}
 	got, _ = handleKey(m, tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone))
 	if got.view != stateResults || got.detailOffset != 0 {
 		t.Fatalf("leave detail offset=%d", got.detailOffset)
@@ -202,7 +203,7 @@ func TestDetailOffsetResetsOnEnterAndLeave(t *testing.T) {
 }
 
 func TestDetailEscapeClearsStatus(t *testing.T) {
-	m := model{view: stateDetail, books: []parse.Book{{ID: "1"}}, description: "text", status: "offline", statusErr: true}
+	m := model{view: stateDetail, books: []parse.Book{{ID: annaRef("1")}}, description: "text", status: "offline", statusErr: true}
 	got, act := handleKey(m, tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone))
 	if got.view != stateResults || !act.dirty {
 		t.Fatalf("view=%v action=%+v", got.view, act)
@@ -256,3 +257,5 @@ func TestTruncate(t *testing.T) {
 		t.Fatalf("long truncate=%q", got)
 	}
 }
+
+func annaRef(id string) source.Ref { return source.Ref{Source: source.Anna, ID: id} }
