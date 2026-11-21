@@ -58,7 +58,7 @@ type originJar struct {
 }
 
 func (o *originJar) sameOrigin(u *url.URL) bool {
-	return u.Scheme == o.base.Scheme && u.Hostname() == o.base.Hostname() && originPort(u) == originPort(&o.base)
+	return u.Scheme == o.base.Scheme && strings.EqualFold(u.Hostname(), o.base.Hostname()) && originPort(u) == originPort(&o.base)
 }
 
 func originPort(u *url.URL) string {

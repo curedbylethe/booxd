@@ -258,6 +258,25 @@ func TestSessionJarScopedToBaseOrigin(t *testing.T) {
 	}
 }
 
+func TestSessionJarHostnameCaseInsensitive(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session.txt")
+	if err := os.WriteFile(path, []byte("example.org\tFALSE\t/\tTRUE\t0\tremix_userkey\tsessionKey\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, base := range []string{"https://EXAMPLE.ORG", "https://example.org"} {
+		_, jar, err := zlibrarySession(config.Config{ZLibraryBaseURL: base, ZLibrarySessionFile: path})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, raw := range []string{"https://example.org/file", "https://EXAMPLE.org/file"} {
+			u, _ := url.Parse(raw)
+			if cookies := jar.Cookies(u); len(cookies) != 1 {
+				t.Errorf("base %s: jar.Cookies(%s) = %v, want the session cookie", base, raw, cookies)
+			}
+		}
+	}
+}
+
 func TestSessionFailures(t *testing.T) {
 	for _, tc := range []struct {
 		name, detail, file string
