@@ -20,6 +20,9 @@ import (
 // ErrExists indicates the destination file already exists.
 var ErrExists = errors.New("down: destination already exists")
 
+// ErrInsecureRedirect indicates a redirect from https to plain http.
+var ErrInsecureRedirect = errors.New("down: redirect leaves https")
+
 // Request describes one download.
 type Request struct {
 	URL      string
@@ -243,14 +246,22 @@ func openRedirected(ctx context.Context, client *fetch.Client, current *url.URL,
 		if redirects == maxRedirects {
 			return nil, nil, fmt.Errorf("download exceeded %d redirects", maxRedirects)
 		}
+		// Redirect errors name only scheme or host: the Location may carry a signed query.
 		reference, err := url.Parse(location)
 		if err != nil {
-			return nil, nil, fmt.Errorf("invalid redirect URL: %w", err)
+			return nil, nil, errors.New("invalid redirect URL")
 		}
-		current = current.ResolveReference(reference)
-		if _, err := httpURL(current.String()); err != nil {
-			return nil, nil, fmt.Errorf("invalid redirect URL: %w", err)
+		next := current.ResolveReference(reference)
+		if next.Scheme != "http" && next.Scheme != "https" {
+			return nil, nil, fmt.Errorf("redirect to unsupported scheme %q", next.Scheme)
 		}
+		if next.Host == "" {
+			return nil, nil, errors.New("invalid redirect URL")
+		}
+		if current.Scheme == "https" && next.Scheme != "https" {
+			return nil, nil, fmt.Errorf("%w: %s", ErrInsecureRedirect, next.Host)
+		}
+		current = next
 	}
 }
 
