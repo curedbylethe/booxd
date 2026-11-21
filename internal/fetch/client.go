@@ -162,6 +162,17 @@ var ErrHostUnhealthy = errors.New("fetch: host unhealthy after a 403 challenge")
 // ErrRateLimited indicates that a 429 backoff wait was interrupted.
 var ErrRateLimited = errors.New("fetch: waiting for rate limit")
 
+// StatusError reports a 5xx status that persisted through every retry.
+type StatusError struct {
+	Host     string
+	Code     int
+	Attempts int
+}
+
+func (e *StatusError) Error() string {
+	return fmt.Sprintf("fetch: %s returned %d %s after %d attempts", e.Host, e.Code, http.StatusText(e.Code), e.Attempts)
+}
+
 // Response contains the unmodified HTTP status, headers and body.
 type Response struct {
 	StatusCode int
@@ -339,7 +350,7 @@ func (c *Client) send(ctx context.Context, method string, u *url.URL, body io.Re
 				_ = resp.Body.Close()
 			}
 			release()
-			return nil, fmt.Errorf("fetch: %s returned %d %s after %d attempts", u.Host, result.StatusCode, http.StatusText(result.StatusCode), attempt)
+			return nil, &StatusError{Host: u.Host, Code: result.StatusCode, Attempts: attempt}
 		}
 		if result.StatusCode == http.StatusForbidden {
 			body, readErr := io.ReadAll(resp.Body)

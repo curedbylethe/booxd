@@ -2,6 +2,7 @@ package fetch
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
@@ -180,5 +181,17 @@ func TestPostSharesHostSpacingWithGet(t *testing.T) {
 	}
 	if !slices.Equal(clock.waits, []time.Duration{DefaultInterval}) {
 		t.Fatalf("waits = %v", clock.waits)
+	}
+}
+
+func TestExhaustedServerErrorIsStatusError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(513)
+	}))
+	defer server.Close()
+	_, err := New(WithClock(&fakeClock{now: time.Unix(1, 0)})).Post(context.Background(), server.URL, url.Values{}, nil)
+	var status *StatusError
+	if !errors.As(err, &status) || status.Code != 513 || status.Attempts != maxAttempts {
+		t.Fatalf("error = %v, want StatusError 513 after %d attempts", err, maxAttempts)
 	}
 }
