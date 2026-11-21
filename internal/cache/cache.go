@@ -7,7 +7,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -56,9 +55,9 @@ func Key(identity string) string {
 }
 
 // SearchKey identifies a cached search page by provider, normalised query and
-// page. A future search option that changes results is added here.
-func SearchKey(src source.Name, query string, page int) string {
-	return Key("search\x00" + string(src) + "\x00" + Normalise(query) + "\x00" + strconv.Itoa(page))
+// the result-shaping search options.
+func SearchKey(src source.Name, query string, opts source.SearchOptions) string {
+	return Key("search\x00" + string(src) + "\x00" + Normalise(query) + "\x00" + opts.Key())
 }
 
 // RefKey identifies a cached detail page by its provider-qualified reference.

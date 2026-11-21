@@ -17,13 +17,17 @@ func TestKeys(t *testing.T) {
 		a, b string
 		same bool
 	}{
-		{"normalised queries share a key", SearchKey(source.Anna, " Crime   Punishment ", 1), SearchKey(source.Anna, "crime punishment", 1), true},
-		{"pages differ", SearchKey(source.Anna, "q", 1), SearchKey(source.Anna, "q", 2), false},
-		{"queries differ", SearchKey(source.Anna, "q", 1), SearchKey(source.Anna, "other", 1), false},
-		{"sources differ", SearchKey(source.Anna, "q", 1), SearchKey(source.ZLibrary, "q", 1), false},
+		{"normalised queries share a key", SearchKey(source.Anna, " Crime   Punishment ", source.SearchOptions{Page: 1}), SearchKey(source.Anna, "crime punishment", source.SearchOptions{Page: 1}), true},
+		{"pages differ", SearchKey(source.Anna, "q", source.SearchOptions{Page: 1}), SearchKey(source.Anna, "q", source.SearchOptions{Page: 2}), false},
+		{"queries differ", SearchKey(source.Anna, "q", source.SearchOptions{Page: 1}), SearchKey(source.Anna, "other", source.SearchOptions{Page: 1}), false},
+		{"sources differ", SearchKey(source.Anna, "q", source.SearchOptions{Page: 1}), SearchKey(source.ZLibrary, "q", source.SearchOptions{Page: 1}), false},
+		{"languages differ", SearchKey(source.Anna, "q", source.SearchOptions{Page: 1, Languages: []string{"en"}}), SearchKey(source.Anna, "q", source.SearchOptions{Page: 1, Languages: []string{"fa"}}), false},
+		{"formats differ", SearchKey(source.Anna, "q", source.SearchOptions{Page: 1, Formats: []string{"epub"}}), SearchKey(source.Anna, "q", source.SearchOptions{Page: 1, Formats: []string{"pdf"}}), false},
+		{"language order is irrelevant", SearchKey(source.Anna, "q", source.SearchOptions{Page: 1, Languages: []string{"en", "fa"}}), SearchKey(source.Anna, "q", source.SearchOptions{Page: 1, Languages: []string{"fa", "en"}}), true},
+		{"duplicate languages are irrelevant", SearchKey(source.Anna, "q", source.SearchOptions{Page: 1, Languages: []string{"en", "en"}}), SearchKey(source.Anna, "q", source.SearchOptions{Page: 1, Languages: []string{"en"}}), true},
 		{"same id across sources differs", RefKey(anna), RefKey(zlib), false},
 		{"hash differs", RefKey(zlib), RefKey(source.Ref{Source: source.ZLibrary, ID: "1234", Hash: "cd"}), false},
-		{"search and detail differ", SearchKey(source.Anna, "1234", 0), RefKey(anna), false},
+		{"search and detail differ", SearchKey(source.Anna, "1234", source.SearchOptions{Page: 0}), RefKey(anna), false},
 		{"identity is hashed as given", Key("a"), Key("a"), true},
 	}
 	for _, tc := range tests {
@@ -41,7 +45,7 @@ func TestKeys(t *testing.T) {
 func TestStorePutGetAndRejectBadEntries(t *testing.T) {
 	dir := t.TempDir()
 	store := Open(dir)
-	key := SearchKey(source.Anna, "Crime  Punishment", 1)
+	key := SearchKey(source.Anna, "Crime  Punishment", source.SearchOptions{Page: 1})
 	want := Entry{Key: key, Query: "Crime  Punishment", Page: 1, Status: 200, FetchedAt: time.Now(), Body: []byte("body")}
 	if err := store.Put(want); err != nil {
 		t.Fatal(err)
@@ -69,7 +73,7 @@ func TestStorePutGetAndRejectBadEntries(t *testing.T) {
 		t.Fatal("corrupt entry must miss")
 	}
 	wrong := want
-	wrong.Key = SearchKey(source.ZLibrary, "Crime  Punishment", 1)
+	wrong.Key = SearchKey(source.ZLibrary, "Crime  Punishment", source.SearchOptions{Page: 1})
 	data, _ = json.Marshal(wrong)
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
@@ -91,7 +95,7 @@ func TestPutNeedsKey(t *testing.T) {
 
 func TestSourcesDoNotShareEntries(t *testing.T) {
 	store := Open(t.TempDir())
-	annaKey, zlibKey := SearchKey(source.Anna, "q", 1), SearchKey(source.ZLibrary, "q", 1)
+	annaKey, zlibKey := SearchKey(source.Anna, "q", source.SearchOptions{Page: 1}), SearchKey(source.ZLibrary, "q", source.SearchOptions{Page: 1})
 	if err := store.Put(Entry{Key: annaKey, Query: "q", Page: 1, Body: []byte("anna")}); err != nil {
 		t.Fatal(err)
 	}
@@ -104,11 +108,11 @@ func TestSweep(t *testing.T) {
 	dir := t.TempDir()
 	store := Open(dir)
 	for _, query := range []string{"old", "new"} {
-		if err := store.Put(Entry{Key: SearchKey(source.Anna, query, 1), Query: query, Page: 1}); err != nil {
+		if err := store.Put(Entry{Key: SearchKey(source.Anna, query, source.SearchOptions{Page: 1}), Query: query, Page: 1}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	old := filepath.Join(dir, SearchKey(source.Anna, "old", 1)+".json")
+	old := filepath.Join(dir, SearchKey(source.Anna, "old", source.SearchOptions{Page: 1})+".json")
 	if err := os.Chtimes(old, time.Now().Add(-31*24*time.Hour), time.Now().Add(-31*24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +122,7 @@ func TestSweep(t *testing.T) {
 	if _, err := os.Stat(old); !os.IsNotExist(err) {
 		t.Fatal("old entry was not removed")
 	}
-	if _, ok := store.Get(SearchKey(source.Anna, "new", 1)); !ok {
+	if _, ok := store.Get(SearchKey(source.Anna, "new", source.SearchOptions{Page: 1})); !ok {
 		t.Fatal("recent entry was removed")
 	}
 	if err := Open(filepath.Join(dir, "missing")).Sweep(SweepAge); err != nil {

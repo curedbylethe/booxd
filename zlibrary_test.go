@@ -372,7 +372,7 @@ func TestZLibrarySearchStaleFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entry := cache.Entry{Key: cache.SearchKey(source.ZLibrary, "q", 1), Query: "q", Page: 1, Status: 200, FetchedAt: time.Now().Add(-48 * time.Hour), Body: []byte(zlibSearchJSON)}
+	entry := cache.Entry{Key: cache.SearchKey(source.ZLibrary, "q", source.SearchOptions{Page: 1}), Query: "q", Page: 1, Status: 200, FetchedAt: time.Now().Add(-48 * time.Hour), Body: []byte(zlibSearchJSON)}
 	if err := cache.Open(dir).Put(entry); err != nil {
 		t.Fatal(err)
 	}
