@@ -553,7 +553,7 @@ func TestZLibraryHostUnavailable(t *testing.T) {
 		t.Fatalf("tui code=%d", code)
 	}
 	ctx := context.Background()
-	if _, err := opts.Search(ctx, source.ZLibrary, "q"); err == nil || err.Error() != want {
+	if _, err := opts.Search(ctx, source.ZLibrary, "q", 1); err == nil || err.Error() != want {
 		t.Fatalf("tui search error=%v, want %q", err, want)
 	}
 	if _, err := opts.Detail(ctx, source.Ref{Source: source.ZLibrary, ID: "5512", Hash: "a1b2c3"}); err == nil || err.Error() != want {
@@ -664,7 +664,7 @@ func TestTuiZLibraryWithoutBaseURL(t *testing.T) {
 	}
 	const want = "zlibrary needs [zlibrary] base_url or BOOXD_ZLIBRARY_BASE_URL"
 	ctx := context.Background()
-	if _, err := opts.Search(ctx, source.ZLibrary, "q"); err == nil || err.Error() != want {
+	if _, err := opts.Search(ctx, source.ZLibrary, "q", 1); err == nil || err.Error() != want {
 		t.Fatalf("search error=%v, want %q", err, want)
 	}
 	ref := source.Ref{Source: source.ZLibrary, ID: "5512", Hash: "a1b2c3"}
@@ -698,7 +698,7 @@ func TestTuiZLibraryDownload(t *testing.T) {
 		t.Fatalf("code=%d stderr=%q", code, stderr)
 	}
 	ctx := context.Background()
-	books, err := opts.Search(ctx, source.ZLibrary, "left hand")
+	books, err := opts.Search(ctx, source.ZLibrary, "left hand", 1)
 	if err != nil || len(books) != 2 || books[0].ID.String() != zlibRef {
 		t.Fatalf("search books=%v err=%v", books, err)
 	}
@@ -765,4 +765,51 @@ func TestTuiZLibraryDownloadOutcomes(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestTuiSearchForwardsPage(t *testing.T) {
+	t.Run("zlibrary", func(t *testing.T) {
+		var form atomic.Value
+		_, newClient, _ := zlibraryServer(t, func(w http.ResponseWriter, r *http.Request) {
+			_ = r.ParseForm()
+			form.Store(r.PostForm.Encode())
+			_, _ = io.WriteString(w, zlibSearchJSON)
+		})
+		opts, code, stderr := runTui(t, []string{"tui", "--source", "zlibrary"}, newClient)
+		if code != 0 || stderr != "" {
+			t.Fatalf("code=%d stderr=%q", code, stderr)
+		}
+		if _, err := opts.Search(context.Background(), source.ZLibrary, "left hand", 3); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := form.Load(), "limit=25&message=left+hand&page=3"; got != want {
+			t.Fatalf("form = %v, want %q", got, want)
+		}
+	})
+	t.Run("anna", func(t *testing.T) {
+		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+		t.Setenv("BOOXD_CACHE_DIR", t.TempDir())
+		t.Setenv("BOOXD_CONFIG", "")
+		var gotURL string
+		newClient := func(config.Config, io.Writer, http.CookieJar) *fetch.Client {
+			return fetch.New(fetch.WithLookup(func(_ context.Context, rawURL string) (int, []byte, bool) {
+				gotURL = rawURL
+				return 200, []byte("<div>Showing 0 results on this page</div>"), true
+			}))
+		}
+		resolve := func(context.Context, config.Config, string, *fetch.Client) (string, error) {
+			return "https://mirror.test", nil
+		}
+		opts := captureTUI(t)
+		var stdout, stderr bytes.Buffer
+		if code := run([]string{"tui"}, &stdout, &stderr, resolve, newClient); code != 0 {
+			t.Fatalf("code=%d stderr=%q", code, stderr.String())
+		}
+		if _, err := opts.Search(context.Background(), source.Anna, "left hand", 3); err != nil {
+			t.Fatal(err)
+		}
+		if want := "https://mirror.test/search?q=left+hand&page=3"; gotURL != want {
+			t.Fatalf("url = %q, want %q", gotURL, want)
+		}
+	})
 }

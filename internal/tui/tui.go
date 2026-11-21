@@ -11,8 +11,8 @@ import (
 	"github.com/gdamore/tcell/v2"
 )
 
-// SearchFunc searches one page of from for query.
-type SearchFunc func(ctx context.Context, from source.Name, query string) ([]parse.Book, error)
+// SearchFunc searches one 1-based page of from for query.
+type SearchFunc func(ctx context.Context, from source.Name, query string, page int) ([]parse.Book, error)
 
 // DetailFunc loads one book's detail page.
 type DetailFunc func(ctx context.Context, ref source.Ref) (parse.Detail, error)
@@ -101,7 +101,7 @@ func run(ctx context.Context, screen tcell.Screen, opts Options, inline bool) er
 	if from == "" {
 		from = source.Anna
 	}
-	m := model{view: stateQuery, width: width, height: height, source: from, hasDetail: opts.Detail != nil, hasDownload: opts.Download != nil, theme: newTheme(opts.Mono)}
+	m := model{view: stateQuery, page: 1, width: width, height: height, source: from, hasDetail: opts.Detail != nil, hasDownload: opts.Download != nil, theme: newTheme(opts.Mono)}
 	paint(screen, m)
 	// cancelDownload stops the one running download; only this goroutine
 	// touches it.
@@ -141,10 +141,10 @@ func run(ctx context.Context, screen tcell.Screen, opts Options, inline bool) er
 				m.status = "…"
 				m.statusErr = false
 				paint(screen, m)
-				seq, from, query := m.searchSeq, m.source, m.query
+				seq, from, query, page := m.searchSeq, m.source, m.query, m.page
 				start(func() {
-					books, err := opts.Search(ctx, from, query)
-					post(&update{apply: func(m model) (model, bool) { return applySearch(m, seq, books, err) }})
+					books, err := opts.Search(ctx, from, query, page)
+					post(&update{apply: func(m model) (model, bool) { return applySearch(m, seq, page, books, err) }})
 				})
 			case act.detail:
 				m.status = "…"

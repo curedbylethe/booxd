@@ -24,7 +24,7 @@ func TestRunScreenDrawsElevenRowsAndHidesCursor(t *testing.T) {
 	books[0].Title = strings.Repeat("Long title ", 8)
 	books[1].Title = "漢字e\u0301"
 	calls := 0
-	err := runScreen(context.Background(), sim, func(context.Context, source.Name, string) ([]parse.Book, error) {
+	err := runScreen(context.Background(), sim, func(context.Context, source.Name, string, int) ([]parse.Book, error) {
 		calls++
 		return books, nil
 	})
@@ -84,7 +84,7 @@ func TestRunScreenKeysDoNotSearchAgain(t *testing.T) {
 	sim.InjectKey(tcell.KeyEscape, 0, tcell.ModNone)
 	sim.InjectKey(tcell.KeyRune, 'q', tcell.ModNone)
 	calls := 0
-	if err := runScreen(context.Background(), sim, func(context.Context, source.Name, string) ([]parse.Book, error) {
+	if err := runScreen(context.Background(), sim, func(context.Context, source.Name, string, int) ([]parse.Book, error) {
 		calls++
 		return booksForTest(2), nil
 	}); err != nil {
@@ -109,7 +109,7 @@ func TestRunScreenDetailUsesCallback(t *testing.T) {
 		gotRef = ref
 		return parse.Detail{Description: "First line"}, nil
 	}
-	if err := runScreenWithTheme(context.Background(), sim, func(context.Context, source.Name, string) ([]parse.Book, error) {
+	if err := runScreenWithTheme(context.Background(), sim, func(context.Context, source.Name, string, int) ([]parse.Book, error) {
 		searches++
 		return []parse.Book{book}, nil
 	}, detail, false); err != nil {
@@ -152,7 +152,7 @@ func TestRunScreenDetailLoadingAndError(t *testing.T) {
 		status = strings.TrimRight(lines[23], " ")
 		return parse.Detail{Description: "First line"}, nil
 	}
-	if err := runScreenWithTheme(context.Background(), loading, func(context.Context, source.Name, string) ([]parse.Book, error) {
+	if err := runScreenWithTheme(context.Background(), loading, func(context.Context, source.Name, string, int) ([]parse.Book, error) {
 		return book(), nil
 	}, detail, false); err != nil {
 		t.Fatal(err)
@@ -163,7 +163,7 @@ func TestRunScreenDetailLoadingAndError(t *testing.T) {
 
 	failing := newSimulation(t, 80, 24)
 	open(failing)
-	err := runScreenWithTheme(context.Background(), failing, func(context.Context, source.Name, string) ([]parse.Book, error) {
+	err := runScreenWithTheme(context.Background(), failing, func(context.Context, source.Name, string, int) ([]parse.Book, error) {
 		return book(), nil
 	}, func(context.Context, source.Ref) (parse.Detail, error) {
 		return parse.Detail{}, errors.New("offline")
@@ -189,7 +189,7 @@ func TestRunScreenDetailNilCallbackAndReopen(t *testing.T) {
 	sim.InjectKey(tcell.KeyEnter, 0, tcell.ModNone)
 	sim.InjectKey(tcell.KeyEnter, 0, tcell.ModNone)
 	sim.InjectKey(tcell.KeyRune, 'q', tcell.ModNone)
-	if err := runScreen(context.Background(), sim, func(context.Context, source.Name, string) ([]parse.Book, error) {
+	if err := runScreen(context.Background(), sim, func(context.Context, source.Name, string, int) ([]parse.Book, error) {
 		return []parse.Book{{ID: annaRef("42"), Title: "A title"}}, nil
 	}); err != nil {
 		t.Fatal(err)
@@ -207,7 +207,7 @@ func TestRunScreenDetailNilCallbackAndReopen(t *testing.T) {
 	reopen.InjectKey(tcell.KeyEnter, 0, tcell.ModNone)
 	reopen.InjectKey(tcell.KeyRune, 'q', tcell.ModNone)
 	calls := 0
-	if err := runScreenWithTheme(context.Background(), reopen, func(context.Context, source.Name, string) ([]parse.Book, error) {
+	if err := runScreenWithTheme(context.Background(), reopen, func(context.Context, source.Name, string, int) ([]parse.Book, error) {
 		return []parse.Book{{ID: annaRef("42"), Title: "A title"}}, nil
 	}, func(context.Context, source.Ref) (parse.Detail, error) {
 		calls++
@@ -229,7 +229,7 @@ func TestRunScreenFailureKeepsPreviousResults(t *testing.T) {
 	sim.InjectKey(tcell.KeyEnter, 0, tcell.ModNone)
 	sim.InjectKey(tcell.KeyRune, 'q', tcell.ModNone)
 	calls := 0
-	err := runScreen(context.Background(), sim, func(context.Context, source.Name, string) ([]parse.Book, error) {
+	err := runScreen(context.Background(), sim, func(context.Context, source.Name, string, int) ([]parse.Book, error) {
 		calls++
 		if calls == 1 {
 			return []parse.Book{{ID: annaRef("old"), Title: "Previous result"}}, nil
@@ -257,7 +257,7 @@ func TestRunScreenResizeKeepsSelection(t *testing.T) {
 		t.Fatal(err)
 	}
 	sim.InjectKey(tcell.KeyRune, 'q', tcell.ModNone)
-	if err := runScreen(context.Background(), sim, func(context.Context, source.Name, string) ([]parse.Book, error) {
+	if err := runScreen(context.Background(), sim, func(context.Context, source.Name, string, int) ([]parse.Book, error) {
 		return booksForTest(20), nil
 	}); err != nil {
 		t.Fatal(err)
@@ -279,7 +279,7 @@ func TestRunScreenResizeKeepsSelection(t *testing.T) {
 		t.Fatal(err)
 	}
 	small.InjectKey(tcell.KeyRune, 'q', tcell.ModNone)
-	if err := runScreen(context.Background(), small, func(context.Context, source.Name, string) ([]parse.Book, error) {
+	if err := runScreen(context.Background(), small, func(context.Context, source.Name, string, int) ([]parse.Book, error) {
 		return booksForTest(1), nil
 	}); err != nil {
 		t.Fatal(err)
@@ -295,7 +295,7 @@ func TestRunScreenReturnsEventError(t *testing.T) {
 	if err := sim.PostEvent(tcell.NewEventError(errors.New("screen failed"))); err != nil {
 		t.Fatal(err)
 	}
-	err := runScreen(context.Background(), sim, func(context.Context, source.Name, string) ([]parse.Book, error) { return nil, nil })
+	err := runScreen(context.Background(), sim, func(context.Context, source.Name, string, int) ([]parse.Book, error) { return nil, nil })
 	if err == nil || !strings.Contains(err.Error(), "screen failed") {
 		t.Fatalf("error=%v", err)
 	}
@@ -363,7 +363,7 @@ func TestFrameCount(t *testing.T) {
 			events = append(events, key(tcell.KeyCtrlC, 0))
 			screen.scriptEvents = events
 			calls := 0
-			search := func(context.Context, source.Name, string) ([]parse.Book, error) {
+			search := func(context.Context, source.Name, string, int) ([]parse.Book, error) {
 				calls++
 				return booksForTest(20), nil
 			}
@@ -402,7 +402,7 @@ func TestInFlightStatus(t *testing.T) {
 	}
 	calls := 0
 	var status, previousRow string
-	search := func(context.Context, source.Name, string) ([]parse.Book, error) {
+	search := func(context.Context, source.Name, string, int) ([]parse.Book, error) {
 		calls++
 		if calls == 1 {
 			return []parse.Book{{ID: annaRef("old"), Title: "Previous result"}}, nil
@@ -450,7 +450,7 @@ func TestCursorHidden(t *testing.T) {
 				screen.scriptEvents = append(screen.scriptEvents, tcell.NewEventKey(tcell.KeyLeft, 0, tcell.ModNone))
 			}
 			screen.scriptEvents = append(screen.scriptEvents, tcell.NewEventKey(tcell.KeyCtrlC, 0, tcell.ModNone))
-			if err := runScreen(context.Background(), screen, func(context.Context, source.Name, string) ([]parse.Book, error) { return nil, nil }); err != nil {
+			if err := runScreen(context.Background(), screen, func(context.Context, source.Name, string, int) ([]parse.Book, error) { return nil, nil }); err != nil {
 				t.Fatal(err)
 			}
 			if screen.postErr != nil {
@@ -482,7 +482,7 @@ func TestRunUsesMonoOption(t *testing.T) {
 	screen := newSimulation(t, 80, 24)
 	screen.InjectKey(tcell.KeyRune, 'x', tcell.ModNone)
 	screen.InjectKey(tcell.KeyEnter, 0, tcell.ModNone)
-	search := func(context.Context, source.Name, string) ([]parse.Book, error) {
+	search := func(context.Context, source.Name, string, int) ([]parse.Book, error) {
 		return nil, errors.New("offline")
 	}
 	// Run searches off the UI goroutine, so quit only once the error is drawn.
@@ -707,7 +707,7 @@ func TestSelectSourceStartsAndReachesSearch(t *testing.T) {
 			sim.InjectKey(tcell.KeyEnter, 0, tcell.ModNone)
 			sim.InjectKey(tcell.KeyRune, 'q', tcell.ModNone)
 			var got source.Name
-			search := func(_ context.Context, from source.Name, _ string) ([]parse.Book, error) {
+			search := func(_ context.Context, from source.Name, _ string, _ int) ([]parse.Book, error) {
 				got = from
 				return nil, nil
 			}
@@ -730,7 +730,7 @@ func TestSearchInFlightKeepsInputAndDropsStaleResult(t *testing.T) {
 	t.Cleanup(unblock)
 	var mu sync.Mutex
 	var queries []string
-	search := func(_ context.Context, from source.Name, query string) ([]parse.Book, error) {
+	search := func(_ context.Context, from source.Name, query string, _ int) ([]parse.Book, error) {
 		mu.Lock()
 		queries = append(queries, string(from)+":"+query)
 		mu.Unlock()
@@ -786,11 +786,11 @@ func TestSearchInFlightKeepsInputAndDropsStaleResult(t *testing.T) {
 
 func TestSearchStaleResultIsDropped(t *testing.T) {
 	m := model{view: stateResults, searchSeq: 2, books: []parse.Book{zlibBook()}, status: "…"}
-	got, dirty := applySearch(m, 1, []parse.Book{{ID: annaRef("old")}}, nil)
+	got, dirty := applySearch(m, 1, 1, []parse.Book{{ID: annaRef("old")}}, nil)
 	if dirty || got.books[0].ID != zlibBook().ID || got.status != "…" {
 		t.Fatalf("stale result applied: dirty=%t books=%v status=%q", dirty, got.books, got.status)
 	}
-	got, dirty = applySearch(m, 2, []parse.Book{{ID: annaRef("new")}}, nil)
+	got, dirty = applySearch(m, 2, 1, []parse.Book{{ID: annaRef("new")}}, nil)
 	if !dirty || got.books[0].ID != annaRef("new") || got.status != "1 results" {
 		t.Fatalf("current result not applied: dirty=%t books=%v status=%q", dirty, got.books, got.status)
 	}
@@ -821,7 +821,9 @@ func TestDownloadCallsCallbackWithRef(t *testing.T) {
 		progress(1, 2)
 		return "/books/5512.epub", nil
 	}
-	search := func(context.Context, source.Name, string) ([]parse.Book, error) { return []parse.Book{zlibBook()}, nil }
+	search := func(context.Context, source.Name, string, int) ([]parse.Book, error) {
+		return []parse.Book{zlibBook()}, nil
+	}
 	if err := run(context.Background(), sim, Options{Search: search, Download: download}, true); err != nil {
 		t.Fatal(err)
 	}
@@ -850,7 +852,7 @@ func TestDownloadAnnaDetailOffersNone(t *testing.T) {
 		t.Fatal("download called for an anna book")
 		return "", nil
 	}
-	search := func(context.Context, source.Name, string) ([]parse.Book, error) { return booksForTest(1), nil }
+	search := func(context.Context, source.Name, string, int) ([]parse.Book, error) { return booksForTest(1), nil }
 	if err := run(context.Background(), screen, Options{Search: search, Download: download}, true); err != nil {
 		t.Fatal(err)
 	}
@@ -985,7 +987,9 @@ func TestProgressFramesChangeAtCoarseSteps(t *testing.T) {
 				tt.report(progress)
 				return "/books/5512.epub", nil
 			}
-			search := func(context.Context, source.Name, string) ([]parse.Book, error) { return []parse.Book{zlibBook()}, nil }
+			search := func(context.Context, source.Name, string, int) ([]parse.Book, error) {
+				return []parse.Book{zlibBook()}, nil
+			}
 			if err := run(context.Background(), screen, Options{Search: search, Download: download}, true); err != nil {
 				t.Fatal(err)
 			}
@@ -1008,7 +1012,7 @@ func TestDownloadCancel(t *testing.T) {
 	second := zlibBook()
 	second.ID.ID, second.Title = "7731", "Parable"
 	searches := 0
-	search := func(context.Context, source.Name, string) ([]parse.Book, error) {
+	search := func(context.Context, source.Name, string, int) ([]parse.Book, error) {
 		searches++
 		return []parse.Book{zlibBook(), second}, nil
 	}
@@ -1072,5 +1076,23 @@ func TestDownloadCancel(t *testing.T) {
 		}
 	default:
 		t.Fatal("download did not observe ctx.Done")
+	}
+}
+
+func TestSearchRequestsPageOne(t *testing.T) {
+	sim := newSimulation(t, 80, 24)
+	pressRune(sim, 'x')
+	sim.InjectKey(tcell.KeyEnter, 0, tcell.ModNone)
+	sim.InjectKey(tcell.KeyRune, 'q', tcell.ModNone)
+	var pages []int
+	search := func(_ context.Context, _ source.Name, _ string, page int) ([]parse.Book, error) {
+		pages = append(pages, page)
+		return nil, nil
+	}
+	if err := runScreen(context.Background(), sim, search); err != nil {
+		t.Fatal(err)
+	}
+	if len(pages) != 1 || pages[0] != 1 {
+		t.Fatalf("requested pages = %v, want [1]", pages)
 	}
 }
