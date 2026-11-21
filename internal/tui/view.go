@@ -157,6 +157,8 @@ func drawHelp(screen tcell.Screen, m model, width, height int) {
 		"k / Up move up",
 		"Esc go back, or cancel a running download first",
 		"Tab switch source: anna, zlibrary",
+		"n next result page",
+		"p previous result page",
 		"d download a zlibrary book from its details",
 		"q quit",
 		"? show help",
