@@ -130,6 +130,20 @@ func TestParseLine(t *testing.T) {
 	})
 }
 
+func TestBookRefRoundTripsAcceptedIDs(t *testing.T) {
+	b, ok := parseLine("!bot abc-def |Title.epub ::INFO:: 1MB")
+	if !ok {
+		t.Fatal("line rejected")
+	}
+	ref := b.Ref()
+	if err := ref.Validate(); err != nil {
+		t.Fatalf("Validate(%+v) = %v", ref, err)
+	}
+	if got, err := source.Parse(ref.String()); err != nil || got != ref {
+		t.Fatalf("Parse(%q) = %+v, %v; want %+v", ref.String(), got, err, ref)
+	}
+}
+
 func TestBookRef(t *testing.T) {
 	b := Book{ID: "16d6770d2ba9"}
 	want := source.Ref{Source: source.IRC, ID: "16d6770d2ba9"}

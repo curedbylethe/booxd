@@ -54,9 +54,12 @@ func Parse(s string) (Ref, error) {
 	return ref, nil
 }
 
-// String returns the display form: the bare ID for Anna's Archive, otherwise
+// String returns the display form: empty for the zero Ref, the bare ID for Anna's Archive, otherwise
 // source:id with /hash appended when there is a hash.
 func (r Ref) String() string {
+	if r.IsZero() {
+		return ""
+	}
 	if r.Source == Anna {
 		return r.ID
 	}
@@ -96,7 +99,8 @@ func (r Ref) Validate() error {
 			return fmt.Errorf("source: invalid hash %q", r.Hash)
 		}
 	case IRC:
-		if !alnum(r.ID) {
+		// An offer ID is any token the bot prints; only the display form's separators are barred.
+		if r.ID == "" || strings.ContainsAny(r.ID, "/ \t\r\n") {
 			return fmt.Errorf("source: invalid book id %q", r.ID)
 		}
 		if r.Hash != "" && !alnum(r.Hash) {
