@@ -17,6 +17,7 @@ import (
 	"github.com/curedbylethe/booxd/internal/mirror"
 	"github.com/curedbylethe/booxd/internal/parse"
 	"github.com/curedbylethe/booxd/internal/source"
+	"github.com/curedbylethe/booxd/internal/source/zlibrary"
 	"github.com/curedbylethe/booxd/internal/tui"
 	"github.com/curedbylethe/booxd/internal/update"
 	"golang.org/x/term"
@@ -26,6 +27,17 @@ var version = "dev"
 
 // runTUI is the terminal interface; tests replace it to inspect the wiring.
 var runTUI = tui.Run
+
+// repeatableFlag collects one value per flag occurrence. String only serves the
+// --help default line; a value is never split on commas.
+type repeatableFlag []string
+
+func (r *repeatableFlag) String() string { return strings.Join(*r, ",") }
+
+func (r *repeatableFlag) Set(value string) error {
+	*r = append(*r, value)
+	return nil
+}
 
 func main() {
 	offerUpdate(os.Args[1:], os.Stderr)
@@ -134,6 +146,9 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 		noCache := flags.Bool("no-cache", false, "skip cached search results")
 		verbose := flags.Bool("verbose", false, "log each fetch attempt to stderr")
 		sourceName := flags.String("source", string(source.Anna), sourceUsage)
+		var languages, formats repeatableFlag
+		flags.Var(&languages, "language", "filter by language (zlibrary only; repeatable)")
+		flags.Var(&formats, "format", "filter by extension (zlibrary only; repeatable)")
 		if err := flags.Parse(args[1:]); err != nil {
 			return 2
 		}
@@ -157,6 +172,21 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 		if from == source.ZLibrary && !annaOnly(flags, stderr, "mirror", "dump-html", "max-age") {
 			return 2
 		}
+		if from != source.ZLibrary && !zlibraryOnly(flags, stderr, "language", "format") {
+			return 2
+		}
+		var langs, fmts []string
+		if from == source.ZLibrary {
+			var err error
+			if langs, err = zlibrary.NormaliseLanguages(languages); err != nil {
+				_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
+				return 2
+			}
+			if fmts, err = zlibrary.NormaliseFormats(formats); err != nil {
+				_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
+				return 2
+			}
+		}
 		cfg, err := loadConfig(*configPath)
 		if err != nil {
 			_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
@@ -175,7 +205,7 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 			if *noCache {
 				store = nil
 			}
-			return searchZLibrary(cfg, store, query, *page, log, stdout, stderr, newClient)
+			return searchZLibrary(cfg, store, query, source.SearchOptions{Page: *page, Languages: langs, Formats: fmts}, log, stdout, stderr, newClient)
 		}
 		ctx := context.Background()
 		resolveSearch := func(ctx context.Context, cfg config.Config, _ string, client *fetch.Client) (string, error) {
