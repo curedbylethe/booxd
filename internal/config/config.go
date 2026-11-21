@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/curedbylethe/booxd/internal/fetch"
+	"github.com/curedbylethe/booxd/internal/irc"
 )
 
 // Config contains the runtime settings read by booxd.
@@ -31,11 +33,22 @@ type Config struct {
 	// that selects zlibrary validates them.
 	ZLibraryBaseURL     string
 	ZLibrarySessionFile string
+	IRCServer           string
+	IRCNick             string
+	IRCChannel          string
+	IRCSearchTimeout    time.Duration
+	IRCDownloadTimeout  time.Duration
 }
 
 // Defaults returns compiled-in settings. Mirror seeds are supplied by the caller.
 func Defaults() Config {
 	c := Config{UserAgent: fetch.DefaultUserAgent, RequestTimeout: fetch.DefaultTimeout, PerHostInterval: fetch.DefaultInterval}
+	ircDefault := irc.DefaultConfig()
+	c.IRCServer = net.JoinHostPort(ircDefault.Host, strconv.Itoa(ircDefault.Port))
+	c.IRCNick = ircDefault.Nick
+	c.IRCChannel = ircDefault.Channel
+	c.IRCSearchTimeout = 2 * time.Minute
+	c.IRCDownloadTimeout = 30 * time.Minute
 	if home, err := os.UserHomeDir(); err == nil {
 		c.DownloadDir = filepath.Join(home, "Downloads")
 	}
@@ -67,6 +80,13 @@ type fileConfig struct {
 		BaseURL     *string `toml:"base_url"`
 		SessionFile *string `toml:"session_file"`
 	} `toml:"zlibrary"`
+	IRC struct {
+		Server          *string `toml:"server"`
+		Nick            *string `toml:"nick"`
+		Channel         *string `toml:"channel"`
+		SearchTimeout   any     `toml:"search_timeout"`
+		DownloadTimeout any     `toml:"download_timeout"`
+	} `toml:"irc"`
 }
 
 // Load merges base settings, an optional TOML file, then BOOXD_* variables.
@@ -157,6 +177,39 @@ func applyFile(c Config, f fileConfig) (Config, error) {
 	if f.ZLibrary.SessionFile != nil {
 		c.ZLibrarySessionFile = *f.ZLibrary.SessionFile
 	}
+	if f.IRC.Server != nil {
+		v, err := parseIRCServer(*f.IRC.Server, "irc server")
+		if err != nil {
+			return c, err
+		}
+		c.IRCServer = v
+	}
+	if f.IRC.Nick != nil {
+		if *f.IRC.Nick == "" {
+			return c, fmt.Errorf("irc nick must not be empty")
+		}
+		c.IRCNick = *f.IRC.Nick
+	}
+	if f.IRC.Channel != nil {
+		if !strings.HasPrefix(*f.IRC.Channel, "#") {
+			return c, fmt.Errorf("irc channel must start with %q", "#")
+		}
+		c.IRCChannel = *f.IRC.Channel
+	}
+	if f.IRC.SearchTimeout != nil {
+		v, err := parseDuration(f.IRC.SearchTimeout, "irc search_timeout")
+		if err != nil {
+			return c, err
+		}
+		c.IRCSearchTimeout = v
+	}
+	if f.IRC.DownloadTimeout != nil {
+		v, err := parseDuration(f.IRC.DownloadTimeout, "irc download_timeout")
+		if err != nil {
+			return c, err
+		}
+		c.IRCDownloadTimeout = v
+	}
 	return c, nil
 }
 
@@ -181,10 +234,24 @@ func applyEnvironment(c Config) (Config, error) {
 	}{
 		{"BOOXD_DOWNLOAD_DIR", &c.DownloadDir}, {"BOOXD_CACHE_DIR", &c.CacheDir}, {"BOOXD_USER_AGENT", &c.UserAgent},
 		{"BOOXD_ZLIBRARY_BASE_URL", &c.ZLibraryBaseURL}, {"BOOXD_ZLIBRARY_SESSION_FILE", &c.ZLibrarySessionFile},
+		{"BOOXD_IRC_NICK", &c.IRCNick},
 	} {
 		if value, ok := os.LookupEnv(item.name); ok && value != "" {
 			*item.target = value
 		}
+	}
+	if value, ok := os.LookupEnv("BOOXD_IRC_SERVER"); ok && value != "" {
+		v, err := parseIRCServer(value, "BOOXD_IRC_SERVER")
+		if err != nil {
+			return c, err
+		}
+		c.IRCServer = v
+	}
+	if value, ok := os.LookupEnv("BOOXD_IRC_CHANNEL"); ok && value != "" {
+		if !strings.HasPrefix(value, "#") {
+			return c, fmt.Errorf("BOOXD_IRC_CHANNEL must start with %q", "#")
+		}
+		c.IRCChannel = value
 	}
 	if value, ok := os.LookupEnv("BOOXD_PROXY"); ok && value != "" {
 		v, err := parseProxy(value, "BOOXD_PROXY")
@@ -198,6 +265,7 @@ func applyEnvironment(c Config) (Config, error) {
 		target *time.Duration
 	}{
 		{"BOOXD_REQUEST_TIMEOUT", &c.RequestTimeout}, {"BOOXD_PER_HOST_INTERVAL", &c.PerHostInterval},
+		{"BOOXD_IRC_SEARCH_TIMEOUT", &c.IRCSearchTimeout}, {"BOOXD_IRC_DOWNLOAD_TIMEOUT", &c.IRCDownloadTimeout},
 	} {
 		if value, ok := os.LookupEnv(item.name); ok && value != "" {
 			v, err := parseDuration(value, item.name)
@@ -227,6 +295,18 @@ func validateMirrors(values []string, field string) ([]string, error) {
 		result = append(result, strings.TrimRight(u.String(), "/"))
 	}
 	return result, nil
+}
+
+func parseIRCServer(raw, field string) (string, error) {
+	host, port, err := net.SplitHostPort(raw)
+	if err != nil || host == "" {
+		return "", fmt.Errorf("%s must be host:port", field)
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil || n < 1 || n > 65535 {
+		return "", fmt.Errorf("%s must be host:port", field)
+	}
+	return raw, nil
 }
 
 func parseProxy(raw, field string) (*url.URL, error) {
