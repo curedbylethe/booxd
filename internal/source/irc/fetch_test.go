@@ -252,3 +252,30 @@ func fetchAssertMissing(t *testing.T, path string) {
 		t.Fatalf("stat %s error = %v, want not exist", path, err)
 	}
 }
+
+func TestFetchRenameFailureKeepsDestination(t *testing.T) {
+	f := newFakeClient("#ebooks")
+	data := []byte("book body bytes")
+	f.send(dcc.Offer{From: "artemis_serv", Name: "Name.epub", Size: int64(len(data))})
+	s := testSearcher(f)
+	s.openOffer = pipeOpen(t, data)
+	dst := filepath.Join(t.TempDir(), "book.epub")
+	// The destination is an existing directory: the replacement must fail
+	// and leave it — and its contents — untouched.
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		t.Fatalf("mkdir dst: %v", err)
+	}
+	inside := filepath.Join(dst, "keep.txt")
+	if err := os.WriteFile(inside, []byte("kept"), 0o644); err != nil {
+		t.Fatalf("write inside: %v", err)
+	}
+
+	_, err := s.Fetch(context.Background(), bookA, dst)
+	if err == nil {
+		t.Fatal("Fetch: expected a rename failure")
+	}
+	fetchAssertFile(t, inside, "kept")
+	if _, serr := os.Stat(dst + ".old"); serr == nil {
+		t.Fatal("the existing destination was moved aside")
+	}
+}

@@ -73,16 +73,26 @@ func (s *Searcher) Fetch(ctx context.Context, b Book, dstPath string) (int64, er
 		return written, fmt.Errorf("source irc: fetch %q: close %s: %w", b.ID, part, closeErr)
 	}
 
-	// Windows refuses to rename over an existing target; remove it first so
-	// the same single rename works on every platform (G-15).
-	if _, err := os.Stat(dstPath); err == nil {
-		if err := os.Remove(dstPath); err != nil {
-			return written, fmt.Errorf("source irc: fetch %q: remove %s: %w", b.ID, dstPath, err)
-		}
+	// Replacing an existing book: the single rename replaces atomically on
+	// POSIX but Windows refuses to rename over an existing target (G-15).
+	// When it does, move the old book aside instead of deleting it, so a
+	// failed replacement leaves the user's file intact.
+	if err := os.Rename(part, dstPath); err == nil {
+		return written, nil
 	}
-	if err := os.Rename(part, dstPath); err != nil {
+	info, serr := os.Stat(dstPath)
+	if serr != nil || !info.Mode().IsRegular() {
 		return written, fmt.Errorf("source irc: fetch %q: rename %s: %w", b.ID, dstPath, err)
 	}
+	backup := dstPath + ".old"
+	if rerr := os.Rename(dstPath, backup); rerr != nil {
+		return written, fmt.Errorf("source irc: fetch %q: move %s aside: %w", b.ID, dstPath, rerr)
+	}
+	if rerr := os.Rename(part, dstPath); rerr != nil {
+		_ = os.Rename(backup, dstPath) // put the old book back
+		return written, fmt.Errorf("source irc: fetch %q: rename %s: %w", b.ID, dstPath, rerr)
+	}
+	_ = os.Remove(backup)
 	return written, nil
 }
 
