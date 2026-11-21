@@ -3,6 +3,7 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -294,3 +295,95 @@ func TestTruncate(t *testing.T) {
 }
 
 func annaRef(id string) source.Ref { return source.Ref{Source: source.Anna, ID: id} }
+
+func key(r rune) *tcell.EventKey { return tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone) }
+
+func TestPageKeys(t *testing.T) {
+	books := []parse.Book{{ID: annaRef("a")}}
+	m := model{view: stateResults, page: 2, books: books, query: "q"}
+	got, a := handleKey(m, key('n'))
+	if a != (action{dirty: true, search: true, page: 3}) || got.page != 2 {
+		t.Fatalf("n: action=%+v page=%d", a, got.page)
+	}
+	got, a = handleKey(m, key('p'))
+	if a != (action{dirty: true, search: true, page: 1}) || got.page != 2 {
+		t.Fatalf("p: action=%+v page=%d", a, got.page)
+	}
+	// Page 1 has no previous page: nothing changes and nothing repaints.
+	m.page = 1
+	got, a = handleKey(m, key('p'))
+	if a != (action{}) || !reflect.DeepEqual(got, m) {
+		t.Fatalf("p on page 1: action=%+v model changed=%t", a, !reflect.DeepEqual(got, m))
+	}
+	// The keys belong to the results screen only.
+	for _, v := range []viewState{stateQuery, stateDetail} {
+		got, a = handleKey(model{view: v, page: 2, books: books}, key('n'))
+		if a.search || got.page != 2 {
+			t.Fatalf("view %d: n requested a page: %+v", v, a)
+		}
+	}
+}
+
+func TestApplyResultsPages(t *testing.T) {
+	old := []parse.Book{{ID: annaRef("a")}, {ID: annaRef("b")}}
+	base := model{view: stateResults, page: 1, books: old, selected: 1, offset: 1, searchSeq: 2}
+
+	m, applied := applySearch(base, 2, 2, []parse.Book{{ID: annaRef("c")}}, nil)
+	if !applied || m.page != 2 || m.selected != 0 || m.offset != 0 || m.books[0].ID != annaRef("c") || m.status != "1 results · page 2" {
+		t.Fatalf("page 2 applied: %+v", m)
+	}
+
+	m, _ = applySearch(base, 2, 2, nil, nil)
+	if m.page != 1 || m.selected != 1 || m.offset != 1 || len(m.books) != 2 || m.status != "no results on page 2" || m.statusErr {
+		t.Fatalf("empty page 2: page=%d selected=%d books=%d status=%q err=%t", m.page, m.selected, len(m.books), m.status, m.statusErr)
+	}
+
+	m, _ = applySearch(base, 2, 1, nil, nil)
+	if m.page != 1 || len(m.books) != 0 || m.status != "no results" {
+		t.Fatalf("empty page 1: page=%d books=%d status=%q", m.page, len(m.books), m.status)
+	}
+
+	m, _ = applySearch(base, 2, 2, nil, errors.New("offline"))
+	if m.page != 1 || len(m.books) != 2 || m.status != "offline" || !m.statusErr {
+		t.Fatalf("failed page 2: page=%d books=%d status=%q err=%t", m.page, len(m.books), m.status, m.statusErr)
+	}
+	_, a := handleKey(m, key('n'))
+	if !a.search || a.page != 2 {
+		t.Fatalf("n after a failed page: %+v", a)
+	}
+
+	// A reply for a superseded request changes nothing.
+	m, applied = applySearch(base, 1, 2, []parse.Book{{ID: annaRef("late")}}, nil)
+	if applied || !reflect.DeepEqual(m, base) {
+		t.Fatalf("stale page applied: applied=%t page=%d", applied, m.page)
+	}
+}
+
+func TestPageResetAndKeep(t *testing.T) {
+	books := []parse.Book{{ID: annaRef("a")}}
+	tab := tcell.NewEventKey(tcell.KeyTab, 0, tcell.ModNone)
+	esc := tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone)
+	enter := tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone)
+	for _, tt := range []struct {
+		name string
+		m    model
+		ev   *tcell.EventKey
+		page int
+	}{
+		{"submit", model{view: stateQuery, page: 3, input: []rune("abc"), caret: 3, query: "abc"}, enter, 1},
+		{"tab on query", model{view: stateQuery, page: 3, books: books, query: "q"}, tab, 1},
+		{"tab on results", model{view: stateResults, page: 3, books: books, query: "q"}, tab, 1},
+		{"results escape", model{view: stateResults, page: 3, books: books, query: "q"}, esc, 3},
+		{"results slash", model{view: stateResults, page: 3, books: books, query: "q"}, key('/'), 3},
+		{"results enter", model{view: stateResults, page: 3, books: books, query: "q"}, enter, 3},
+		{"detail escape", model{view: stateDetail, page: 3, books: books, query: "q"}, esc, 3},
+		{"detail slash", model{view: stateDetail, page: 3, books: books, query: "q"}, key('/'), 3},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, _ := handleKey(tt.m, tt.ev)
+			if got.page != tt.page || got.query != tt.m.query {
+				t.Fatalf("page=%d query=%q, want page %d", got.page, got.query, tt.page)
+			}
+		})
+	}
+}
