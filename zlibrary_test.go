@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 	"github.com/curedbylethe/booxd/internal/config"
 	"github.com/curedbylethe/booxd/internal/fetch"
 	"github.com/curedbylethe/booxd/internal/source"
+	"github.com/curedbylethe/booxd/internal/tui"
 )
 
 const (
@@ -398,5 +400,164 @@ func TestZLibraryGetHidesLinkOnTransportError(t *testing.T) {
 	code, stdout, stderr := runZLibrary(t, []string{"get", zlibRef}, newClient)
 	if code != 1 || stdout != "" || !strings.HasPrefix(stderr, "booxd: Get 127.0.0.1:1: ") {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+}
+
+// captureTUI replaces the terminal interface and returns the options the tui
+// command built.
+func captureTUI(t *testing.T) *tui.Options {
+	t.Helper()
+	var got tui.Options
+	old := runTUI
+	t.Cleanup(func() { runTUI = old })
+	runTUI = func(_ context.Context, opts tui.Options) error {
+		got = opts
+		return nil
+	}
+	return &got
+}
+
+func runTui(t *testing.T, args []string, newClient clientFunc) (*tui.Options, int, string) {
+	t.Helper()
+	opts := captureTUI(t)
+	resolve, _ := noNetwork(t)
+	var stdout, stderr bytes.Buffer
+	code := run(args, &stdout, &stderr, resolve, newClient)
+	return opts, code, stderr.String()
+}
+
+func TestTuiSource(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		code int
+		want source.Name
+		err  string
+	}{
+		{"default is anna", []string{"tui"}, 0, source.Anna, ""},
+		{"zlibrary", []string{"tui", "--source", "zlibrary"}, 0, source.ZLibrary, ""},
+		{"irc refused", []string{"tui", "--source", "irc"}, 2, "", "booxd: irc books are not available yet\n"},
+		{"unknown refused", []string{"tui", "--source", "bogus"}, 2, "", "booxd: unknown source \"bogus\"\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withGetEnvironment(t, t.TempDir())
+			t.Setenv("BOOXD_ZLIBRARY_BASE_URL", "")
+			newClient := func(config.Config, io.Writer, http.CookieJar) *fetch.Client { return fetch.New() }
+			opts, code, stderr := runTui(t, tc.args, newClient)
+			if code != tc.code || stderr != tc.err || opts.Source != tc.want {
+				t.Fatalf("code=%d stderr=%q source=%q, want %d %q %q", code, stderr, opts.Source, tc.code, tc.err, tc.want)
+			}
+		})
+	}
+}
+
+func TestTuiZLibraryWithoutBaseURL(t *testing.T) {
+	withGetEnvironment(t, t.TempDir())
+	t.Setenv("BOOXD_ZLIBRARY_BASE_URL", "")
+	newClient := func(config.Config, io.Writer, http.CookieJar) *fetch.Client { return fetch.New() }
+	opts, code, stderr := runTui(t, []string{"tui"}, newClient)
+	if code != 0 || stderr != "" || opts.Source != source.Anna {
+		t.Fatalf("tui did not start on anna: code=%d stderr=%q source=%q", code, stderr, opts.Source)
+	}
+	const want = "zlibrary needs [zlibrary] base_url or BOOXD_ZLIBRARY_BASE_URL"
+	ctx := context.Background()
+	if _, err := opts.Search(ctx, source.ZLibrary, "q"); err == nil || err.Error() != want {
+		t.Fatalf("search error=%v, want %q", err, want)
+	}
+	ref := source.Ref{Source: source.ZLibrary, ID: "5512", Hash: "a1b2c3"}
+	if _, err := opts.Detail(ctx, ref); err == nil || err.Error() != want {
+		t.Fatalf("detail error=%v, want %q", err, want)
+	}
+	if _, err := opts.Download(ctx, ref, func(int64, int64) {}); !errors.Is(err, tui.ErrFailed) || err.Error() != "failed: "+want {
+		t.Fatalf("download error=%v", err)
+	}
+}
+
+func TestTuiZLibraryDownload(t *testing.T) {
+	var srv *httptest.Server
+	srv, newClient, _ := zlibraryServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/eapi/book/search":
+			_, _ = io.WriteString(w, zlibSearchJSON)
+		case "/eapi/book/5512/a1b2c3":
+			_, _ = io.WriteString(w, zlibDetailJSON)
+		case "/eapi/book/5512/a1b2c3/file":
+			_, _ = fmt.Fprintf(w, `{"success":1,"file":{"allowDownload":true,"downloadLink":"%s/dl/5512?token=%s"}}`, srv.URL, linkToken)
+		case "/dl/5512":
+			_, _ = io.WriteString(w, "book")
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	t.Setenv("BOOXD_ZLIBRARY_SESSION_FILE", writeSessionFile(t, "remix_userid", "remix_userkey"))
+	opts, code, stderr := runTui(t, []string{"tui", "--source", "zlibrary"}, newClient)
+	if code != 0 || stderr != "" {
+		t.Fatalf("code=%d stderr=%q", code, stderr)
+	}
+	ctx := context.Background()
+	books, err := opts.Search(ctx, source.ZLibrary, "left hand")
+	if err != nil || len(books) != 2 || books[0].ID.String() != zlibRef {
+		t.Fatalf("search books=%v err=%v", books, err)
+	}
+	detail, err := opts.Detail(ctx, books[0].ID)
+	if err != nil || detail.Title != "The Left Hand of Darkness" {
+		t.Fatalf("detail=%+v err=%v", detail, err)
+	}
+	var steps []int64
+	path, err := opts.Download(ctx, books[0].ID, func(done, total int64) {
+		if total != 100 {
+			t.Errorf("progress total=%d, want 100", total)
+		}
+		steps = append(steps, done)
+	})
+	want := filepath.Join(os.Getenv("BOOXD_DOWNLOAD_DIR"), "5512.epub")
+	if err != nil || path != want || len(steps) == 0 || steps[len(steps)-1] != 100 {
+		t.Fatalf("download path=%q err=%v steps=%v", path, err, steps)
+	}
+	if _, err := opts.Download(ctx, books[0].ID, func(int64, int64) {}); !errors.Is(err, tui.ErrExists) {
+		t.Fatalf("second download error=%v, want ErrExists", err)
+	}
+}
+
+func TestTuiZLibraryDownloadOutcomes(t *testing.T) {
+	ref := source.Ref{Source: source.ZLibrary, ID: "5512", Hash: "a1b2c3"}
+	for _, tc := range []struct {
+		name, detail, file string
+		session            bool
+		want               error
+	}{
+		{"session expired", `{"success":0,"error":{"message":"Invalid credentials","code":17}}`, "", true, tui.ErrSessionExpired},
+		{"quota", zlibDetailJSON, `{"success":1,"file":{"allowDownload":false,"disallowDownloadMessage":"daily limit"}}`, true, tui.ErrQuota},
+		{"no session", zlibDetailJSON, "", false, tui.ErrFailed},
+		{"transport", zlibDetailJSON, `{"success":1,"file":{"allowDownload":true,"downloadLink":"https://127.0.0.1:1/dl/5512?token=` + linkToken + `"}}`, true, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, newClient, calls := zlibraryServer(t, func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasSuffix(r.URL.Path, "/file") {
+					_, _ = io.WriteString(w, tc.file)
+					return
+				}
+				_, _ = io.WriteString(w, tc.detail)
+			})
+			if tc.session {
+				t.Setenv("BOOXD_ZLIBRARY_SESSION_FILE", writeSessionFile(t, "remix_userid", "remix_userkey"))
+			}
+			opts, code, _ := runTui(t, []string{"tui"}, newClient)
+			if code != 0 {
+				t.Fatalf("code=%d", code)
+			}
+			path, err := opts.Download(context.Background(), ref, func(int64, int64) {})
+			if path != "" || err == nil {
+				t.Fatalf("path=%q err=%v", path, err)
+			}
+			for _, outcome := range []error{tui.ErrExists, tui.ErrSessionExpired, tui.ErrQuota, tui.ErrFailed} {
+				if errors.Is(err, outcome) != (outcome == tc.want) {
+					t.Fatalf("err=%v, want outcome %v", err, tc.want)
+				}
+			}
+			if tc.want == tui.ErrFailed && (err.Error() != "failed: "+errNeedSession.Error() || calls.Load() != 0) {
+				t.Fatalf("no-session err=%q calls=%d", err, calls.Load())
+			}
+		})
 	}
 }

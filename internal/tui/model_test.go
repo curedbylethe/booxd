@@ -158,8 +158,8 @@ func TestDetailScrollClamps(t *testing.T) {
 	for i := 0; i < 40; i++ {
 		m, _ = handleKey(m, j)
 	}
-	if m.detailOffset != 19 {
-		t.Fatalf("bottom offset=%d, want 19", m.detailOffset)
+	if m.detailOffset != 20 {
+		t.Fatalf("bottom offset=%d, want 20", m.detailOffset)
 	}
 	for i := 0; i < 40; i++ {
 		m, _ = handleKey(m, k)
@@ -170,7 +170,7 @@ func TestDetailScrollClamps(t *testing.T) {
 	if _, act := handleKey(m, k); act != (action{}) {
 		t.Fatalf("k at top action=%+v, want none", act)
 	}
-	m.detailOffset = 19
+	m.detailOffset = 20
 	if _, act := handleKey(m, j); act != (action{}) {
 		t.Fatalf("j at bottom action=%+v, want none", act)
 	}
@@ -218,18 +218,18 @@ func TestClampDetailOffsetOnResize(t *testing.T) {
 	for i := 0; i < 30; i++ {
 		lines = append(lines, fmt.Sprintf("line %02d", i))
 	}
-	m := model{view: stateDetail, description: strings.Join(lines, "\n"), width: 80, height: 24, detailOffset: 19}
-	if got := clampDetailOffset(m, m.detailOffset); got != 19 {
-		t.Fatalf("offset at 80x24=%d, want 19", got)
+	m := model{view: stateDetail, description: strings.Join(lines, "\n"), width: 80, height: 24, detailOffset: 20}
+	if got := clampDetailOffset(m, m.detailOffset); got != 20 {
+		t.Fatalf("offset at 80x24=%d, want 20", got)
 	}
 	m.height = 30
-	if got := clampDetailOffset(m, m.detailOffset); got != 13 {
-		t.Fatalf("offset after grow=%d, want 13", got)
+	if got := clampDetailOffset(m, m.detailOffset); got != 14 {
+		t.Fatalf("offset after grow=%d, want 14", got)
 	}
 	m.height = 24
 	m.width = 80
-	if got := clampDetailOffset(m, 100); got != 19 {
-		t.Fatalf("excessive offset=%d, want 19", got)
+	if got := clampDetailOffset(m, 100); got != 20 {
+		t.Fatalf("excessive offset=%d, want 20", got)
 	}
 }
 

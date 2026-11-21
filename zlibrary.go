@@ -17,6 +17,7 @@ import (
 	"github.com/curedbylethe/booxd/internal/parse"
 	"github.com/curedbylethe/booxd/internal/source"
 	"github.com/curedbylethe/booxd/internal/source/zlibrary"
+	"github.com/curedbylethe/booxd/internal/tui"
 )
 
 const sourceUsage = "book source: anna or zlibrary"
@@ -75,25 +76,30 @@ func zlibrarySession(cfg config.Config) (*url.URL, http.CookieJar, error) {
 	return nil, nil, fmt.Errorf("session file %s has no remix_userid or remix_userkey cookie for the [zlibrary] base_url host", cfg.ZLibrarySessionFile)
 }
 
-// newZLibrary builds a Searcher and its client from cfg. It returns a nil
-// Searcher, after printing why, when a prerequisite is missing (exit status 2);
-// no client exists and no request has been sent at that point.
-func newZLibrary(cfg config.Config, needSession bool, log io.Writer, newClient clientFunc, stderr io.Writer) (*zlibrary.Searcher, *fetch.Client, bool) {
+var errNeedSession = errors.New("downloads need a signed-in session; set [zlibrary] session_file or BOOXD_ZLIBRARY_SESSION_FILE")
+
+// newZLibrary builds a Searcher and its client from cfg, and reports whether
+// it is signed in. An error is a missing prerequisite (exit status 2); no
+// client exists and no request has been sent at that point.
+func newZLibrary(cfg config.Config, needSession bool, log io.Writer, newClient clientFunc) (*zlibrary.Searcher, *fetch.Client, bool, error) {
 	base, jar, err := zlibrarySession(cfg)
 	if err == nil && needSession && jar == nil {
-		err = errors.New("downloads need a signed-in session; set [zlibrary] session_file or BOOXD_ZLIBRARY_SESSION_FILE")
+		err = errNeedSession
 	}
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
-		return nil, nil, false
+		return nil, nil, false, err
 	}
 	client := newClient(cfg, log, jar)
 	s, err := zlibrary.New(client, base, jar != nil)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
-		return nil, nil, false
+		return nil, nil, false, err
 	}
-	return s, client, jar != nil
+	return s, client, jar != nil, nil
+}
+
+func zlibraryPrerequisite(stderr io.Writer, err error) int {
+	_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
+	return 2
 }
 
 // zlibraryMessage is err as one line without a request URL: a transport
@@ -120,9 +126,9 @@ func zlibraryFailure(stderr io.Writer, err error) int {
 }
 
 func searchZLibrary(cfg config.Config, store *cache.Store, query string, page int, log, stdout, stderr io.Writer, newClient clientFunc) int {
-	s, _, session := newZLibrary(cfg, false, log, newClient, stderr)
-	if s == nil {
-		return 2
+	s, _, session, err := newZLibrary(cfg, false, log, newClient)
+	if err != nil {
+		return zlibraryPrerequisite(stderr, err)
 	}
 	if !session {
 		s.Store = store
@@ -143,9 +149,9 @@ func searchZLibrary(cfg config.Config, store *cache.Store, query string, page in
 }
 
 func showZLibrary(cfg config.Config, store *cache.Store, ref source.Ref, log, stdout, stderr io.Writer, newClient clientFunc) int {
-	s, _, session := newZLibrary(cfg, false, log, newClient, stderr)
-	if s == nil {
-		return 2
+	s, _, session, err := newZLibrary(cfg, false, log, newClient)
+	if err != nil {
+		return zlibraryPrerequisite(stderr, err)
 	}
 	if !session {
 		s.Store = store
@@ -162,17 +168,30 @@ func showZLibrary(cfg config.Config, store *cache.Store, ref source.Ref, log, st
 }
 
 func getZLibrary(cfg config.Config, ref source.Ref, open bool, log, stdout, stderr io.Writer, newClient clientFunc) int {
-	// As on the Anna path, the transfer has no whole-request timeout; the
-	// metadata requests keep the configured one.
-	pageTimeout := cfg.RequestTimeout
-	clientConfig := cfg
-	clientConfig.RequestTimeout = 0
-	s, client, _ := newZLibrary(clientConfig, true, log, newClient, stderr)
-	if s == nil {
-		return 2
+	s, client, _, err := newZLibrary(transferConfig(cfg), true, log, newClient)
+	if err != nil {
+		return zlibraryPrerequisite(stderr, err)
 	}
-	ctx := context.Background()
-	pageCtx, cancel := context.WithTimeout(ctx, pageTimeout)
+	path, err := downloadZLibrary(context.Background(), s, client, cfg, ref, stderr)
+	if err != nil && !errors.Is(err, down.ErrExists) {
+		return zlibraryFailure(stderr, err)
+	}
+	return finishGet(stdout, stderr, path, err, open)
+}
+
+// transferConfig is cfg for a client that downloads: as on the Anna path, the
+// transfer has no whole-request timeout. downloadZLibrary gives the metadata
+// requests the configured one.
+func transferConfig(cfg config.Config) config.Config {
+	cfg.RequestTimeout = 0
+	return cfg
+}
+
+// downloadZLibrary resolves ref's link and saves the file, writing down's
+// progress lines to progress. client must come from transferConfig. A file
+// already present returns its path with down.ErrExists.
+func downloadZLibrary(ctx context.Context, s *zlibrary.Searcher, client *fetch.Client, cfg config.Config, ref source.Ref, progress io.Writer) (string, error) {
+	pageCtx, cancel := context.WithTimeout(ctx, cfg.RequestTimeout)
 	detail, err := s.Detail(pageCtx, ref)
 	var link url.URL
 	if err == nil {
@@ -180,18 +199,97 @@ func getZLibrary(cfg config.Config, ref source.Ref, open bool, log, stdout, stde
 	}
 	cancel()
 	if err != nil {
-		return zlibraryFailure(stderr, err)
+		return "", err
 	}
-	path, err := down.Download(ctx, client, down.Request{
+	return down.Download(ctx, client, down.Request{
 		URL:      link.String(),
 		Dir:      cfg.DownloadDir,
 		Name:     zlibrary.SaveName(ref, detail.Format),
-		Progress: stderr,
+		Progress: progress,
 	})
-	if err != nil && !errors.Is(err, down.ErrExists) {
-		return zlibraryFailure(stderr, err)
+}
+
+// tuiZLibrary serves the TUI's zlibrary callbacks from one client, so one
+// request per host holds across search, detail and download. The client comes
+// from transferConfig; search and detail carry the configured timeout. A
+// missing prerequisite does not stop the TUI: each callback reports it.
+type tuiZLibrary struct {
+	cfg     config.Config
+	s       *zlibrary.Searcher
+	client  *fetch.Client
+	session bool
+	err     error
+}
+
+func newTUIZLibrary(cfg config.Config, store *cache.Store, newClient clientFunc) tuiZLibrary {
+	s, client, session, err := newZLibrary(transferConfig(cfg), false, nil, newClient)
+	if err == nil && !session {
+		s.Store = store
 	}
-	return finishGet(stdout, stderr, path, err, open)
+	return tuiZLibrary{cfg: cfg, s: s, client: client, session: session, err: err}
+}
+
+func (z tuiZLibrary) search(ctx context.Context, query string) ([]parse.Book, error) {
+	if z.err != nil {
+		return nil, z.err
+	}
+	ctx, cancel := context.WithTimeout(ctx, z.cfg.RequestTimeout)
+	defer cancel()
+	books, err := z.s.Search(ctx, query, 1)
+	if err != nil {
+		return nil, errors.New(zlibraryMessage(err))
+	}
+	return toParseBooks(books), nil
+}
+
+func (z tuiZLibrary) detail(ctx context.Context, ref source.Ref) (parse.Detail, error) {
+	if z.err != nil {
+		return parse.Detail{}, z.err
+	}
+	ctx, cancel := context.WithTimeout(ctx, z.cfg.RequestTimeout)
+	defer cancel()
+	detail, err := z.s.Detail(ctx, ref)
+	if err != nil {
+		return parse.Detail{}, errors.New(zlibraryMessage(err))
+	}
+	return toParseDetail(detail), nil
+}
+
+// download maps the shared download path's errors to the TUI's outcomes. Only
+// prerequisite messages, which hold no link or cookie, reach the screen.
+func (z tuiZLibrary) download(ctx context.Context, ref source.Ref, progress func(done, total int64)) (string, error) {
+	err := z.err
+	if err == nil && !z.session {
+		err = errNeedSession
+	}
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", tui.ErrFailed, err)
+	}
+	path, err := downloadZLibrary(ctx, z.s, z.client, z.cfg, ref, percentWriter(progress))
+	switch {
+	case err == nil:
+		return path, nil
+	case errors.Is(err, down.ErrExists):
+		return path, tui.ErrExists
+	case errors.Is(err, zlibrary.ErrSessionExpired):
+		return "", tui.ErrSessionExpired
+	case errors.Is(err, zlibrary.ErrQuota):
+		return "", tui.ErrQuota
+	}
+	return "", err
+}
+
+// percentWriter turns down's "N%" progress lines into progress(N, 100).
+// shortcut: down reports whole percents only and nothing when the size is
+// unknown, so the TUI never gets a byte count; report bytes from down when that matters.
+type percentWriter func(done, total int64)
+
+func (f percentWriter) Write(p []byte) (int, error) {
+	var percent int64
+	if _, err := fmt.Sscanf(string(p), "%d%%", &percent); err == nil {
+		f(percent, 100)
+	}
+	return len(p), nil
 }
 
 // toParseBooks and toParseDetail are the only code that knows both the

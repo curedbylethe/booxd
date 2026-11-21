@@ -4,7 +4,7 @@ Search, inspect, and download books from Anna’s Archive with a terminal app bu
 
 ![booxd search results in the terminal](docs/images/tui-search.png)
 
-booxd provides search, book details, gated downloads, and an interactive TUI. The `search`, `show`, and `get` commands can also use a Z-Library EAPI host that you configure; see [Z-Library](#z-library). It runs in the foreground; `serve` is not implemented. On Android, `get --open` hands a saved file to `termux-open` and Android’s default file handler.
+booxd provides search, book details, gated downloads, and an interactive TUI. The `search`, `show`, `get`, and `tui` commands can also use a Z-Library EAPI host that you configure; see [Z-Library](#z-library). It runs in the foreground; `serve` is not implemented. On Android, `get --open` hands a saved file to `termux-open` and Android’s default file handler.
 
 ## Installation
 
@@ -73,7 +73,7 @@ See [Termux setup](docs/termux.md) for Boox details. See [CONTRIBUTING.md](CONTR
 
    Run the same command in PowerShell.
 
-4. Type a title or author, then press `Enter`. Move with `j`/`k`; press `Enter` to view a book and read its description.
+4. Type a title or author, then press `Enter`. Move with `j`/`k`; press `Enter` to view a book and read its description. Press `Tab` to switch the source between `anna` and `zlibrary`; on a Z-Library book, press `d` to download it.
 5. Or use the CLI:
 
    ```sh
@@ -95,6 +95,8 @@ See [Termux setup](docs/termux.md) for Boox details. See [CONTRIBUTING.md](CONTR
 | `Ctrl-C` | Quit | Anywhere |
 | `?` | Toggle help | Results or details; `?` or `Esc` closes help |
 | `Enter` | Search or open selected book | Query or results |
+| `Tab` | Switch source: `anna`, then `zlibrary`, then `anna`; on results, search the query again | Query or results |
+| `d` | Download the book | Details of a Z-Library book |
 | `Esc` | Go back | Query, results, details |
 | `Backspace`, `Delete` | Edit query | Query |
 | `Left`, `Right`, `Home`, `End` | Move caret | Query |
@@ -102,6 +104,10 @@ See [Termux setup](docs/termux.md) for Boox details. See [CONTRIBUTING.md](CONTR
 | `Up`, `Down`, `j`, `k` | Scroll the description | Details |
 | `/` | Edit query | Results or details |
 | `q` | Quit | Results or details |
+
+The search line names the selected source, for example `search [zlibrary]: dune`. The TUI starts on `anna`, or on the `tui --source` value; a change made with `Tab` lasts until you quit and is not saved to config.
+
+The details screen has a `download:` row. It shows `-` before a download, `…` while it starts, then the percentage in whole steps; when the server does not report a size, `…` stays until the download ends. When the download ends, it shows `saved <path>`, `already downloaded`, `session expired`, `quota exhausted`, or `failed`; a missing Z-Library setting shows `failed:` and the same message as the CLI. On an Anna's Archive book, the row shows `zlibrary only` and `d` does nothing. Searches and downloads run in the background, so keys keep working; when you search again, the result of an older search is discarded.
 
 ## CLI reference
 
@@ -112,7 +118,7 @@ Flags go before the search query or book ID. `tui` reads config from `BOOXD_CONF
 | `booxd search` | `--config`, `--source` (anna), `--mirror`, `--page` (1), `--dump-html`, `--max-age` (24h), `--no-cache`, `--verbose`; query | Search the catalog. `--mirror` skips discovery; `--dump-html` writes raw or cached HTML. |
 | `booxd show` | `--config`, `--source` (anna), `--mirror`, `--verbose`; one book ID | Show metadata and download options. |
 | `booxd get` | `--config`, `--source` (anna), `--cookies`, `--mirror`, `--open`, `--verbose`; one book ID | Download with a supplied Netscape cookie jar. `--open` invokes `termux-open` on Android. |
-| `booxd tui` | `--mono` | Open interactive search; `--mono` selects monochrome theme. |
+| `booxd tui` | `--source` (anna), `--mono` | Open interactive search. `--source` sets the first source; `--mono` selects monochrome theme. |
 | `booxd version`, `booxd --version` | None | Print version and target. |
 | `booxd serve` | None | Not implemented; exits 1. |
 
@@ -149,7 +155,7 @@ Config loads from `booxd/config.toml` under the OS config directory. Flags overr
 | `per_host_interval` | `1s` | Minimum time between request starts to one host. |
 | `no_update_check` | `false` | Disable the startup update check. |
 | `[zlibrary] base_url` | Empty | Absolute `https` URL of the Z-Library EAPI host. Required for `--source zlibrary`. |
-| `[zlibrary] session_file` | Empty | Netscape cookie file with the `remix_userid` or `remix_userkey` cookie for `base_url`. Required for `get`; optional for `search` and `show`. |
+| `[zlibrary] session_file` | Empty | Netscape cookie file with the `remix_userid` or `remix_userkey` cookie for `base_url`. Required for `get` and TUI downloads; optional for `search`, `show`, and TUI search. |
 
 Environment: `BOOXD_CONFIG`, `BOOXD_MIRRORS`, `BOOXD_DOWNLOAD_DIR`, `BOOXD_CACHE_DIR`, `BOOXD_PROXY`, `BOOXD_USER_AGENT`, `BOOXD_REQUEST_TIMEOUT`, `BOOXD_PER_HOST_INTERVAL`, `BOOXD_NO_UPDATE_CHECK`, `BOOXD_ZLIBRARY_BASE_URL`, `BOOXD_ZLIBRARY_SESSION_FILE`.
 
