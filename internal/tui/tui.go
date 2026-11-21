@@ -217,10 +217,16 @@ func run(ctx context.Context, screen tcell.Screen, opts Options, inline bool) er
 }
 
 // progressText is the download row while bytes arrive: whole percent when the
-// total is known, otherwise whole MiB.
+// total is known, otherwise whole MiB. A known total advances one step per
+// whole percent or per MiB, whichever is coarser, so a large file still moves
+// without redrawing on every write.
 func progressText(done, total int64) string {
 	if total > 0 {
-		return fmt.Sprintf("%d%%", min(done*100/total, 100))
+		if done >= total {
+			return "100%"
+		}
+		step := max(total/100, 1<<20)
+		return fmt.Sprintf("%d%%", min(done/step*step*100/total, 100))
 	}
 	return fmt.Sprintf("%d MiB", done>>20)
 }

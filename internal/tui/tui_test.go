@@ -931,9 +931,15 @@ func TestProgressText(t *testing.T) {
 	}{
 		{0, 1000, "0%"},
 		{9, 1000, "0%"},
-		{10, 1000, "1%"},
+		{999, 1000, "0%"},
 		{1000, 1000, "100%"},
 		{2000, 1000, "100%"},
+		{0, 200 << 20, "0%"},
+		{2<<20 - 1, 200 << 20, "0%"},
+		{2 << 20, 200 << 20, "1%"},
+		{100 << 20, 200 << 20, "50%"},
+		{199 << 20, 200 << 20, "99%"},
+		{200 << 20, 200 << 20, "100%"},
 		{0, 0, "0 MiB"},
 		{1<<20 - 1, -1, "0 MiB"},
 		{5 << 20, 0, "5 MiB"},
@@ -950,10 +956,11 @@ func TestProgressFramesChangeAtCoarseSteps(t *testing.T) {
 		report func(progress func(done, total int64))
 		frames int
 	}{
-		// 1001 reports, 101 distinct percents, then the outcome.
+		// 201 reports a MiB apart on a 200 MiB total: the step is 2 MiB, so
+		// 101 distinct percents, then the outcome.
 		{"known total", func(progress func(done, total int64)) {
-			for i := int64(0); i <= 1000; i++ {
-				progress(i, 1000)
+			for i := int64(0); i <= 200; i++ {
+				progress(i<<20, 200<<20)
 			}
 		}, 102},
 		// 21 reports a quarter MiB apart: 0 to 5 MiB, then the outcome.

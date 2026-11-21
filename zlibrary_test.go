@@ -688,15 +688,17 @@ func TestTuiZLibraryDownload(t *testing.T) {
 		t.Fatalf("detail=%+v err=%v", detail, err)
 	}
 	var steps []int64
-	path, err := opts.Download(ctx, books[0].ID, func(done, total int64) {
-		if total != 100 {
-			t.Errorf("progress total=%d, want 100", total)
-		}
+	var total int64
+	path, err := opts.Download(ctx, books[0].ID, func(done, t int64) {
+		total = t
 		steps = append(steps, done)
 	})
 	want := filepath.Join(os.Getenv("BOOXD_DOWNLOAD_DIR"), "5512.epub")
-	if err != nil || path != want || len(steps) == 0 || steps[len(steps)-1] != 100 {
+	if err != nil || path != want || len(steps) == 0 || steps[len(steps)-1] != 4 {
 		t.Fatalf("download path=%q err=%v steps=%v", path, err, steps)
+	}
+	if total != 4 {
+		t.Errorf("progress total=%d, want 4", total)
 	}
 	if _, err := opts.Download(ctx, books[0].ID, func(int64, int64) {}); !errors.Is(err, tui.ErrExists) {
 		t.Fatalf("second download error=%v, want ErrExists", err)

@@ -60,7 +60,7 @@ func TestFrameAudit(t *testing.T) {
 		{name: "detail", width: 80, height: 24, model: model{view: stateDetail, books: []parse.Book{book}, book: book, height: 24, theme: style}, selectedRows: [2]int{-1, -1}, wantDownload: "zlibrary only"},
 		{name: "download idle", width: 80, height: 24, model: model{view: stateDetail, books: []parse.Book{zbook}, book: zbook, hasDownload: true, height: 24, theme: style}, selectedRows: [2]int{-1, -1}, wantDownload: "-"},
 		{name: "download starting", width: 80, height: 24, model: downloadFrame("…", true), selectedRows: [2]int{-1, -1}, wantDownload: "…", wantFooter: running},
-		{name: "download percent", width: 80, height: 24, model: downloadFrame(progressText(42, 100), true), selectedRows: [2]int{-1, -1}, wantDownload: "42%", wantFooter: running},
+		{name: "download percent", width: 80, height: 24, model: downloadFrame(progressText(84<<20, 200<<20), true), selectedRows: [2]int{-1, -1}, wantDownload: "42%", wantFooter: running},
 		{name: "download bytes", width: 80, height: 24, model: downloadFrame(progressText(3<<20, 0), true), selectedRows: [2]int{-1, -1}, wantDownload: "3 MiB", wantFooter: running},
 		{name: "download saved", width: 80, height: 24, model: downloadFrame(downloadText("/home/you/Downloads/5512.epub", nil), false), selectedRows: [2]int{-1, -1}, wantDownload: "saved /home/you/Downloads/5512.epub"},
 		{name: "download exists", width: 80, height: 24, model: downloadFrame(downloadText("", ErrExists), false), selectedRows: [2]int{-1, -1}, wantDownload: "already downloaded"},
