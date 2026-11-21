@@ -130,6 +130,7 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 		maxAge := flags.Duration("max-age", cache.DefaultTTL, "maximum age of cached search results")
 		noCache := flags.Bool("no-cache", false, "skip cached search results")
 		verbose := flags.Bool("verbose", false, "log each fetch attempt to stderr")
+		sourceName := flags.String("source", string(source.Anna), sourceUsage)
 		if err := flags.Parse(args[1:]); err != nil {
 			return 2
 		}
@@ -140,6 +141,17 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 		}
 		if *page < 1 {
 			_, _ = fmt.Fprintln(stderr, "booxd: page must be at least 1")
+			return 2
+		}
+		from, ok := parseSourceFlag(*sourceName, stderr)
+		if !ok {
+			return 2
+		}
+		if from == source.IRC {
+			_, _ = fmt.Fprintf(stderr, "booxd: %s books are not available yet\n", from)
+			return 2
+		}
+		if from == source.ZLibrary && !annaOnly(flags, stderr, "mirror", "dump-html", "max-age") {
 			return 2
 		}
 		cfg, err := loadConfig(*configPath)
@@ -155,6 +167,12 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 		var log io.Writer
 		if *verbose {
 			log = stderr
+		}
+		if from == source.ZLibrary {
+			if *noCache {
+				store = nil
+			}
+			return searchZLibrary(cfg, store, query, *page, log, stdout, stderr, newClient)
 		}
 		ctx := context.Background()
 		resolveSearch := func(ctx context.Context, cfg config.Config, _ string, client *fetch.Client) (string, error) {

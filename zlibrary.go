@@ -1,0 +1,214 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+
+	"github.com/curedbylethe/booxd/internal/cache"
+	"github.com/curedbylethe/booxd/internal/config"
+	"github.com/curedbylethe/booxd/internal/down"
+	"github.com/curedbylethe/booxd/internal/fetch"
+	"github.com/curedbylethe/booxd/internal/parse"
+	"github.com/curedbylethe/booxd/internal/source"
+	"github.com/curedbylethe/booxd/internal/source/zlibrary"
+)
+
+const sourceUsage = "book source: anna or zlibrary"
+
+// parseSourceFlag accepts a --source value that names a known source.
+func parseSourceFlag(raw string, stderr io.Writer) (source.Name, bool) {
+	name := source.Name(raw)
+	if name != source.Anna && name != source.ZLibrary && name != source.IRC {
+		_, _ = fmt.Fprintf(stderr, "booxd: unknown source %q\n", raw)
+		return "", false
+	}
+	return name, true
+}
+
+// annaOnly reports false, after naming the flag, when an Anna-only flag was set.
+func annaOnly(flags *flag.FlagSet, stderr io.Writer, names ...string) bool {
+	set := ""
+	flags.Visit(func(f *flag.Flag) {
+		for _, name := range names {
+			if set == "" && f.Name == name {
+				set = name
+			}
+		}
+	})
+	if set != "" {
+		_, _ = fmt.Fprintf(stderr, "booxd: --%s applies to anna only\n", set)
+		return false
+	}
+	return true
+}
+
+// zlibrarySession reads the [zlibrary] settings: the https base URL and, when
+// session_file is set, a jar holding remix_userid or remix_userkey for that
+// URL. A nil jar means anonymous. Every error is a missing prerequisite.
+func zlibrarySession(cfg config.Config) (*url.URL, http.CookieJar, error) {
+	if cfg.ZLibraryBaseURL == "" {
+		return nil, nil, errors.New("zlibrary needs [zlibrary] base_url or BOOXD_ZLIBRARY_BASE_URL")
+	}
+	base, err := url.Parse(cfg.ZLibraryBaseURL)
+	if err != nil || base.Scheme != "https" || base.Host == "" {
+		// The value is not echoed: it is user configuration and may carry a query.
+		return nil, nil, errors.New("[zlibrary] base_url (BOOXD_ZLIBRARY_BASE_URL) must be an https URL")
+	}
+	if cfg.ZLibrarySessionFile == "" {
+		return base, nil, nil
+	}
+	jar, err := down.LoadJar(cfg.ZLibrarySessionFile)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, c := range jar.Cookies(base) {
+		if c.Name == "remix_userid" || c.Name == "remix_userkey" {
+			return base, jar, nil
+		}
+	}
+	return nil, nil, fmt.Errorf("session file %s has no remix_userid or remix_userkey cookie for the [zlibrary] base_url host", cfg.ZLibrarySessionFile)
+}
+
+// newZLibrary builds a Searcher and its client from cfg. It returns a nil
+// Searcher, after printing why, when a prerequisite is missing (exit status 2);
+// no client exists and no request has been sent at that point.
+func newZLibrary(cfg config.Config, needSession bool, log io.Writer, newClient clientFunc, stderr io.Writer) (*zlibrary.Searcher, *fetch.Client, bool) {
+	base, jar, err := zlibrarySession(cfg)
+	if err == nil && needSession && jar == nil {
+		err = errors.New("downloads need a signed-in session; set [zlibrary] session_file or BOOXD_ZLIBRARY_SESSION_FILE")
+	}
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
+		return nil, nil, false
+	}
+	client := newClient(cfg, log, jar)
+	s, err := zlibrary.New(client, base, jar != nil)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
+		return nil, nil, false
+	}
+	return s, client, jar != nil
+}
+
+// zlibraryMessage is err as one line without a request URL: a transport
+// error quotes the URL it failed on, and a download link carries a signed query.
+func zlibraryMessage(err error) string {
+	msg := err.Error()
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		host := "request"
+		if u, parseErr := url.Parse(urlErr.URL); parseErr == nil && u.Host != "" {
+			host = u.Host
+		}
+		msg = strings.ReplaceAll(msg, urlErr.Error(), urlErr.Op+" "+host+": "+urlErr.Err.Error())
+	}
+	if errors.Is(err, zlibrary.ErrSessionExpired) {
+		msg += "; supply a fresh session file"
+	}
+	return msg
+}
+
+func zlibraryFailure(stderr io.Writer, err error) int {
+	_, _ = fmt.Fprintf(stderr, "booxd: %s\n", zlibraryMessage(err))
+	return 1
+}
+
+func searchZLibrary(cfg config.Config, store *cache.Store, query string, page int, log, stdout, stderr io.Writer, newClient clientFunc) int {
+	s, _, session := newZLibrary(cfg, false, log, newClient, stderr)
+	if s == nil {
+		return 2
+	}
+	if !session {
+		s.Store = store
+	}
+	books, err := s.Search(context.Background(), query, page)
+	if err != nil {
+		if len(books) == 0 {
+			return zlibraryFailure(stderr, err)
+		}
+		_, _ = fmt.Fprintf(stderr, "booxd: %s; showing cached results\n", zlibraryMessage(err))
+	}
+	if len(books) == 0 {
+		_, _ = fmt.Fprintln(stderr, "no results")
+		return 0
+	}
+	printBooks(stdout, toParseBooks(books))
+	return 0
+}
+
+func showZLibrary(cfg config.Config, store *cache.Store, ref source.Ref, log, stdout, stderr io.Writer, newClient clientFunc) int {
+	s, _, session := newZLibrary(cfg, false, log, newClient, stderr)
+	if s == nil {
+		return 2
+	}
+	if !session {
+		s.Store = store
+	}
+	detail, err := s.Detail(context.Background(), ref)
+	if err != nil {
+		if detail.Ref.IsZero() {
+			return zlibraryFailure(stderr, err)
+		}
+		_, _ = fmt.Fprintf(stderr, "booxd: %s; showing cached details\n", zlibraryMessage(err))
+	}
+	renderShow(stdout, toParseDetail(detail))
+	return 0
+}
+
+func getZLibrary(cfg config.Config, ref source.Ref, open bool, log, stdout, stderr io.Writer, newClient clientFunc) int {
+	// As on the Anna path, the transfer has no whole-request timeout; the
+	// metadata requests keep the configured one.
+	pageTimeout := cfg.RequestTimeout
+	clientConfig := cfg
+	clientConfig.RequestTimeout = 0
+	s, client, _ := newZLibrary(clientConfig, true, log, newClient, stderr)
+	if s == nil {
+		return 2
+	}
+	ctx := context.Background()
+	pageCtx, cancel := context.WithTimeout(ctx, pageTimeout)
+	detail, err := s.Detail(pageCtx, ref)
+	var link url.URL
+	if err == nil {
+		link, err = s.ResolveDownload(pageCtx, ref)
+	}
+	cancel()
+	if err != nil {
+		return zlibraryFailure(stderr, err)
+	}
+	path, err := down.Download(ctx, client, down.Request{
+		URL:      link.String(),
+		Dir:      cfg.DownloadDir,
+		Name:     zlibrary.SaveName(ref, detail.Format),
+		Progress: stderr,
+	})
+	if err != nil && !errors.Is(err, down.ErrExists) {
+		return zlibraryFailure(stderr, err)
+	}
+	return finishGet(stdout, stderr, path, err, open)
+}
+
+// toParseBooks and toParseDetail are the only code that knows both the
+// provider-neutral source model and the parse model the printers take.
+func toParseBooks(books []source.Book) []parse.Book {
+	out := make([]parse.Book, len(books))
+	for i, b := range books {
+		out[i] = parse.Book{ID: b.Ref, Title: b.Title, Author: b.Author, Year: b.Year, Format: b.Format, Size: b.Size, Publisher: b.Publisher, Language: b.Language}
+	}
+	return out
+}
+
+func toParseDetail(d source.Detail) parse.Detail {
+	out := parse.Detail{ID: d.Ref, Title: d.Title, Author: d.Author, Publisher: d.Publisher, Year: d.Year, Language: d.Language, Format: d.Format, Size: d.Size, ISBN: d.ISBN, Pages: d.Pages, Description: d.Description}
+	if d.HasDownload {
+		// Every zlibrary download needs a session file, signed in or not.
+		out.Downloads = []parse.Download{{Label: string(source.ZLibrary), RequiresSession: true}}
+	}
+	return out
+}

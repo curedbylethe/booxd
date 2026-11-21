@@ -15,6 +15,7 @@ import (
 
 	"github.com/curedbylethe/booxd/internal/down"
 	"github.com/curedbylethe/booxd/internal/parse"
+	"github.com/curedbylethe/booxd/internal/source"
 )
 
 var openFile = func(path string) error {
@@ -33,6 +34,7 @@ func runGet(args []string, stdout, stderr io.Writer, resolve resolveFunc, newCli
 	override := flags.String("mirror", "", "base URL; skip mirror discovery")
 	open := flags.Bool("open", false, "open the saved file with termux-open")
 	verbose := flags.Bool("verbose", false, "log each fetch attempt to stderr")
+	sourceName := flags.String("source", string(source.Anna), sourceUsage)
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -40,8 +42,15 @@ func runGet(args []string, stdout, stderr io.Writer, resolve resolveFunc, newCli
 		flags.Usage()
 		return 2
 	}
-	ref, pagePath, ok := parseBookRef(flags.Arg(0), stderr)
+	from, ok := parseSourceFlag(*sourceName, stderr)
 	if !ok {
+		return 2
+	}
+	ref, pagePath, ok := parseBookRef(flags.Arg(0), from, stderr)
+	if !ok {
+		return 2
+	}
+	if ref.Source == source.ZLibrary && !annaOnly(flags, stderr, "mirror", "cookies") {
 		return 2
 	}
 
@@ -50,6 +59,13 @@ func runGet(args []string, stdout, stderr io.Writer, resolve resolveFunc, newCli
 		_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
 		return 1
 	}
+	var log io.Writer
+	if *verbose {
+		log = stderr
+	}
+	if ref.Source == source.ZLibrary {
+		return getZLibrary(cfg, ref, *open, log, stdout, stderr, newClient)
+	}
 	var jar http.CookieJar
 	if *cookiesPath != "" {
 		jar, err = down.LoadJar(*cookiesPath)
@@ -57,10 +73,6 @@ func runGet(args []string, stdout, stderr io.Writer, resolve resolveFunc, newCli
 			_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
 			return 1
 		}
-	}
-	var log io.Writer
-	if *verbose {
-		log = stderr
 	}
 	pageTimeout := cfg.RequestTimeout
 	clientConfig := cfg
@@ -126,15 +138,22 @@ func runGet(args []string, stdout, stderr io.Writer, resolve resolveFunc, newCli
 		Name:     fallbackName(ref.ID, detail.Format),
 		Progress: stderr,
 	})
-	if errors.Is(err, down.ErrExists) {
-		_, _ = fmt.Fprintf(stdout, "already downloaded: %s\n", path)
-	} else if err != nil {
+	if err != nil && !errors.Is(err, down.ErrExists) {
 		_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
 		return 1
+	}
+	return finishGet(stdout, stderr, path, err, *open)
+}
+
+// finishGet reports a saved or already present file at path, err being nil or
+// down.ErrExists, and opens it when asked.
+func finishGet(stdout, stderr io.Writer, path string, err error, open bool) int {
+	if errors.Is(err, down.ErrExists) {
+		_, _ = fmt.Fprintf(stdout, "already downloaded: %s\n", path)
 	} else {
 		_, _ = fmt.Fprintf(stdout, "saved %s\n", path)
 	}
-	if *open {
+	if open {
 		if err := openFile(path); err != nil {
 			if runtime.GOOS == "android" && errors.Is(err, exec.ErrNotFound) {
 				_, _ = fmt.Fprintf(stderr, "booxd: cannot open %s: termux-open not found; install termux-tools\n", path)

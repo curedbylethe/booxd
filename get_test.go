@@ -396,8 +396,8 @@ func TestGetRefusesUnavailableSource(t *testing.T) {
 		t.Fatal("client created for an unavailable source")
 		return nil
 	}
-	code := run([]string{"get", "zlibrary:1234/ab12cd"}, &stdout, &stderr, resolve, newClient)
-	if code != 2 || stderr.String() != "booxd: zlibrary books are not available yet\n" {
+	code := run([]string{"get", "irc:16d6770d2ba9"}, &stdout, &stderr, resolve, newClient)
+	if code != 2 || stderr.String() != "booxd: irc books are not available yet\n" {
 		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
 }
