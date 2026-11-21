@@ -108,6 +108,8 @@ See [Termux setup](docs/termux.md) for Boox details. See [CONTRIBUTING.md](CONTR
 
 The search line names the selected source, for example `search [zlibrary]: dune`. The TUI starts on `anna`, or on the `tui --source` value; a change made with `Tab` lasts until you quit and is not saved to config.
 
+The results footer reads `N results · page P`. `n` and `p` request the next and previous page; the new page replaces the rows and selects the first one. A page with no results, or one that fails, leaves the previous rows and page on screen and changes only the footer. A new search, or `Tab`, returns to page 1. Page numbers are relative: booxd does not know how many pages exist.
+
 The details screen has a `download:` row. It shows `-` before a download, `…` while it starts, then the percentage in whole steps on a known size, or whole MiB when the server does not report one. When the download ends, it shows `saved <path>`, `already downloaded`, `session expired`, `quota exhausted`, `cancelled`, or `failed`. While a download runs, the footer reads `esc cancel`; the first `Esc` cancels it and keeps the details on screen, and a second `Esc` goes back. A missing Z-Library setting shows `failed:` and the same message as the CLI. On an Anna's Archive book, the row shows `zlibrary only` and `d` does nothing. Searches and downloads run in the background, so keys keep working; when you search again, the result of an older search is discarded.
 
 ## CLI reference
