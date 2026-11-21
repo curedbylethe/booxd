@@ -19,11 +19,8 @@ func (s *Searcher) Fetch(ctx context.Context, b Book, dstPath string) (int64, er
 	if dstPath == "" {
 		return 0, fmt.Errorf("source irc: fetch: empty dstPath (book %q)", b.ID)
 	}
-	if b.Raw == "" {
-		return 0, fmt.Errorf("source irc: fetch: empty raw line (book %q)", b.ID)
-	}
-	if b.Server == "" {
-		return 0, fmt.Errorf("source irc: fetch: empty server (book %q)", b.ID)
+	if err := b.validate(); err != nil {
+		return 0, fmt.Errorf("source irc: fetch: %w", err)
 	}
 
 	slot, err := s.Client.Say(ctx, s.Client.Channel(), b.requestLine())

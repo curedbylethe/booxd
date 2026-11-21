@@ -111,7 +111,7 @@ func (r Ref) Validate() error {
 			return fmt.Errorf("source: invalid hash %q", r.Hash)
 		}
 	case IRC:
-		if r.ID == "" {
+		if r.ID == "" || len(r.ID) > 300 || strings.IndexFunc(r.ID, func(c rune) bool { return c < 0x20 || c == 0x7f }) >= 0 {
 			return fmt.Errorf("source: invalid book id %q", r.ID)
 		}
 		if r.Hash != "" && !alnum(r.Hash) {

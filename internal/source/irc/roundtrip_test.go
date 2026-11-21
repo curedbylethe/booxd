@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/curedbylethe/booxd/internal/dcc"
@@ -68,8 +67,8 @@ func TestRoundTrip(t *testing.T) {
 	if want := []string{"@search jane austen", books[0].requestLine()}; !reflect.DeepEqual(texts, want) {
 		t.Fatalf("Say texts = %q, want %q", texts, want)
 	}
-	if want := strings.TrimSpace(strings.Split(books[0].Raw, "::INFO::")[0]); texts[1] != want {
-		t.Fatalf("second Say %q is not the raw line without the ::INFO:: tail (%q)", texts[1], want)
+	if want := "!artemis_serv 16d6770d2ba9 | Name.epub"; texts[1] != want {
+		t.Fatalf("second Say %q is not the canonical request line %q", texts[1], want)
 	}
 	if want := []string{"#ebooks", "#ebooks"}; !reflect.DeepEqual(targets, want) {
 		t.Fatalf("Say targets = %q, want %q", targets, want)
