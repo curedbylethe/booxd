@@ -24,6 +24,9 @@ import (
 
 var version = "dev"
 
+// runTUI is the terminal interface; tests replace it to inspect the wiring.
+var runTUI = tui.Run
+
 func main() {
 	offerUpdate(os.Args[1:], os.Stderr)
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, resolveMirror, newFetchClient))
@@ -212,7 +215,16 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 			flags.PrintDefaults()
 		}
 		mono := flags.Bool("mono", false, "disable colour")
+		sourceName := flags.String("source", string(source.Anna), sourceUsage)
 		if err := flags.Parse(args[1:]); err != nil {
+			return 2
+		}
+		from, ok := parseSourceFlag(*sourceName, stderr)
+		if !ok {
+			return 2
+		}
+		if from == source.IRC {
+			_, _ = fmt.Fprintf(stderr, "booxd: %s books are not available yet\n", from)
 			return 2
 		}
 		cfg, err := loadConfig("")
@@ -226,15 +238,23 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 		}
 		client := newClient(cfg, nil, nil)
 		search := newSearcher(cfg, client, store, resolve, nil)
-		searchFunc := func(ctx context.Context, query string) ([]parse.Book, error) {
+		zlib := newTUIZLibrary(cfg, store, newClient)
+		searchFunc := func(ctx context.Context, from source.Name, query string) ([]parse.Book, error) {
+			if from == source.ZLibrary {
+				return zlib.search(ctx, query)
+			}
 			outcome, err := search.search(ctx, query, searchOptions{Page: 1, MaxAge: cache.DefaultTTL})
 			return outcome.Books, err
 		}
 		detailClient := func(config.Config, io.Writer, http.CookieJar) *fetch.Client { return client }
 		detailFunc := func(ctx context.Context, ref source.Ref) (parse.Detail, error) {
+			if ref.Source == source.ZLibrary {
+				return zlib.detail(ctx, ref)
+			}
 			return loadDetail(ctx, cfg, ref, ref.ID, "", store, resolve, detailClient, nil, nil)
 		}
-		if err := tui.Run(context.Background(), tui.Options{Search: searchFunc, Detail: detailFunc, Mono: monoEnabled(*mono, os.Getenv("NO_COLOR"))}); err != nil {
+		opts := tui.Options{Search: searchFunc, Detail: detailFunc, Download: zlib.download, Source: from, Mono: monoEnabled(*mono, os.Getenv("NO_COLOR"))}
+		if err := runTUI(context.Background(), opts); err != nil {
 			_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
 			return 1
 		}

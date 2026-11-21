@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 
+	"github.com/curedbylethe/booxd/internal/source"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/uniseg"
 )
@@ -26,11 +27,20 @@ func draw(screen tcell.Screen, m model) {
 	}
 }
 
+// promptWidth is the query's start column. Every source's prefix is padded to
+// the longest one, so switching source never moves the query or the caret.
+var promptWidth = len(searchPrefix(source.ZLibrary))
+
+func searchPrefix(from source.Name) string {
+	return "search [" + string(from) + "]: "
+}
+
 func drawResults(screen tcell.Screen, m model, width, height int) {
-	search := "search: " + string(m.input)
+	prefix := searchPrefix(m.source)
+	search := prefix + strings.Repeat(" ", max(0, promptWidth-len(prefix))) + string(m.input)
 	screen.PutStrStyled(0, 0, truncate(search, width), m.theme.base)
 	if m.view == stateQuery {
-		caretX := len("search: ") + uniseg.StringWidth(string(m.input[:m.caret]))
+		caretX := promptWidth + uniseg.StringWidth(string(m.input[:m.caret]))
 		if caretX < width {
 			caret := ' '
 			if m.caret < len(m.input) {
@@ -68,7 +78,7 @@ func drawResults(screen tcell.Screen, m model, width, height int) {
 	}
 	status := m.status
 	if status == "" {
-		status = "? for help"
+		status = "Tab source · ? for help"
 	}
 	statusStyle := m.theme.base
 	if m.statusErr {
@@ -78,29 +88,28 @@ func drawResults(screen tcell.Screen, m model, width, height int) {
 }
 
 func drawDetail(screen tcell.Screen, m model, width, height int) {
-	if m.selected < len(m.books) {
-		b := m.books[m.selected]
-		fields := []struct{ name, value string }{
-			{"title", b.Title},
-			{"author", b.Author},
-			{"year", b.Year},
-			{"format", b.Format},
-			{"size", b.Size},
-			{"publisher", b.Publisher},
-			{"language", b.Language},
-			{"id", b.ID.String()},
-			{"url", b.URL},
-		}
-		for i, field := range fields {
-			if i >= height-2 {
-				break
-			}
-			label := field.name + ":"
-			screen.PutStrStyled(0, i, label, m.theme.dim)
-			screen.PutStrStyled(len(label)+1, i, truncate(field.value, width-len(label)-1), m.theme.base)
-		}
+	b := m.book
+	fields := []struct{ name, value string }{
+		{"title", b.Title},
+		{"author", b.Author},
+		{"year", b.Year},
+		{"format", b.Format},
+		{"size", b.Size},
+		{"publisher", b.Publisher},
+		{"language", b.Language},
+		{"id", b.ID.String()},
+		{"url", b.URL},
+		{"download", downloadRow(m)},
 	}
-	screen.PutStrStyled(0, 10, "description:", m.theme.dim)
+	for i, field := range fields {
+		if i >= height-2 {
+			break
+		}
+		label := field.name + ":"
+		screen.PutStrStyled(0, i, label, m.theme.dim)
+		screen.PutStrStyled(len(label)+1, i, truncate(field.value, width-len(label)-1), m.theme.base)
+	}
+	screen.PutStrStyled(0, descriptionRow, "description:", m.theme.dim)
 	wrapped := wrap(m.description, width)
 	if m.description == "" {
 		wrapped = []string{"-"}
@@ -111,9 +120,9 @@ func drawDetail(screen tcell.Screen, m model, width, height int) {
 		if index >= len(wrapped) {
 			break
 		}
-		screen.PutStrStyled(0, 11+i, truncate(wrapped[index], width), m.theme.base)
+		screen.PutStrStyled(0, descriptionRow+1+i, truncate(wrapped[index], width), m.theme.base)
 	}
-	status := "esc back · j/k scroll · q quit"
+	status := "d download · esc back · j/k scroll · q quit"
 	statusStyle := m.theme.dim
 	if m.statusErr {
 		status = m.status
@@ -125,6 +134,18 @@ func drawDetail(screen tcell.Screen, m model, width, height int) {
 	screen.PutStrStyled(0, height-1, truncate(status, width), statusStyle)
 }
 
+// downloadRow is the detail screen's download field: "-" before a download,
+// then its progress or outcome. Only zlibrary books can be downloaded here.
+func downloadRow(m model) string {
+	switch {
+	case m.book.ID.Source != source.ZLibrary:
+		return "zlibrary only"
+	case m.download.ref == m.book.ID:
+		return m.download.text
+	}
+	return "-"
+}
+
 func drawHelp(screen tcell.Screen, m model, width, height int) {
 	lines := []string{
 		"/ focus search",
@@ -132,6 +153,8 @@ func drawHelp(screen tcell.Screen, m model, width, height int) {
 		"j / Down move down",
 		"k / Up move up",
 		"Esc go back",
+		"Tab switch source: anna, zlibrary",
+		"d download a zlibrary book from its details",
 		"q quit",
 		"? show help",
 		"Ctrl-C quit",
