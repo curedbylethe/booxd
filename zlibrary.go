@@ -49,6 +49,45 @@ func annaOnly(flags *flag.FlagSet, stderr io.Writer, names ...string) bool {
 	return true
 }
 
+// originJar scopes a loaded cookie jar to the [zlibrary] base URL: the file's
+// Domain field may name a whole dot-domain, and net/http's jar ignores ports,
+// so the raw jar would leak session cookies to sibling hosts on redirects.
+type originJar struct {
+	jar  http.CookieJar
+	base url.URL
+}
+
+func (o *originJar) sameOrigin(u *url.URL) bool {
+	return u.Scheme == o.base.Scheme && u.Hostname() == o.base.Hostname() && originPort(u) == originPort(&o.base)
+}
+
+func originPort(u *url.URL) string {
+	if p := u.Port(); p != "" {
+		return p
+	}
+	if u.Scheme == "https" {
+		return "443"
+	}
+	if u.Scheme == "http" {
+		return "80"
+	}
+	return ""
+}
+
+func (o *originJar) Cookies(u *url.URL) []*http.Cookie {
+	if !o.sameOrigin(u) {
+		return nil
+	}
+	return o.jar.Cookies(u)
+}
+
+func (o *originJar) SetCookies(u *url.URL, cookies []*http.Cookie) {
+	if !o.sameOrigin(u) {
+		return
+	}
+	o.jar.SetCookies(u, cookies)
+}
+
 // zlibrarySession reads the [zlibrary] settings: the https base URL and, when
 // session_file is set, a jar holding remix_userid or remix_userkey for that
 // URL. A nil jar means anonymous. Every error is a missing prerequisite.
@@ -68,9 +107,10 @@ func zlibrarySession(cfg config.Config) (*url.URL, http.CookieJar, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	for _, c := range jar.Cookies(base) {
+	scoped := &originJar{jar: jar, base: *base}
+	for _, c := range scoped.Cookies(base) {
 		if c.Name == "remix_userid" || c.Name == "remix_userkey" {
-			return base, jar, nil
+			return base, scoped, nil
 		}
 	}
 	return nil, nil, fmt.Errorf("session file %s has no remix_userid or remix_userkey cookie for the [zlibrary] base_url host", cfg.ZLibrarySessionFile)

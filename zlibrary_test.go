@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -225,6 +226,34 @@ func TestSessionPrerequisites(t *testing.T) {
 				t.Fatalf("code=%d stdout=%q stderr=%q want %q", code, stdout, stderr, tc.want)
 			}
 		})
+	}
+}
+
+func TestSessionJarScopedToBaseOrigin(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "session.txt")
+	// A dot-domain cookie the stdlib jar would send to every subdomain.
+	line := ".example.org\tTRUE\t/\tTRUE\t0\tremix_userkey\tsessionKey\n"
+	if err := os.WriteFile(path, []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Config{ZLibraryBaseURL: "https://example.org", ZLibrarySessionFile: path}
+	base, jar, err := zlibrarySession(cfg)
+	if err != nil || jar == nil {
+		t.Fatalf("zlibrarySession: err=%v jar=%v", err, jar)
+	}
+	for _, raw := range []string{"https://cdn.example.org", "https://example.org:8443", "http://example.org"} {
+		other, perr := url.Parse(raw)
+		if perr != nil {
+			t.Fatal(perr)
+		}
+		if cookies := jar.Cookies(other); len(cookies) != 0 {
+			t.Errorf("jar.Cookies(%s) leaked %d cookie(s)", raw, len(cookies))
+		}
+		jar.SetCookies(other, []*http.Cookie{{Name: "remix_userkey", Value: "attacker"}})
+	}
+	if cookies := jar.Cookies(base); len(cookies) != 1 || cookies[0].Value != "sessionKey" {
+		t.Fatalf("jar.Cookies(base) = %v, want one remix_userkey=sessionKey", cookies)
 	}
 }
 
