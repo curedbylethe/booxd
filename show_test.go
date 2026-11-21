@@ -33,7 +33,7 @@ func TestRunShow(t *testing.T) {
 	search := showFixture(t, "search-hit.html")
 	fullOutput := "title: Test\nauthor: -\npublisher: -\nyear: 2022\nlanguage: English\nformat: PDF\nsize: 51.0 MB\nisbn: -\npages: 1\ndownloads require a signed-in session\n"
 	richOutput := "title: Test\nauthor: Sleator, William\npublisher: Amulet Books\nyear: 2010\nlanguage: English\nformat: EPUB\nsize: 3.0 MB\nisbn: 9780810993563,9780810989894\npages: -\ndownloads require a signed-in session\n"
-	usage := "usage: booxd show [flags] <id>\nflags must precede the id\n  -config string\n    \tconfig file path\n  -mirror string\n    \tbase URL; skip mirror discovery\n  -source string\n    \tbook source: anna or zlibrary (default \"anna\")\n  -verbose\n    \tlog each fetch attempt to stderr\n"
+	usage := "usage: booxd show [flags] <id>\nflags must precede the id\n  -config string\n    \tconfig file path\n  -mirror string\n    \tbase URL; skip mirror discovery\n  -source string\n    \tbook source: anna, zlibrary or irc (default \"anna\")\n  -verbose\n    \tlog each fetch attempt to stderr\n"
 	mixed := `<div id="book-panel-details"><table><tr><td>Title</td><td>Test</td></tr></table></div>` +
 		`<div id="book-panel-downloads"><li class="list-disc"><span class="font-medium text-[#444]">Fast Partner Server #1</span><a href="https://annas-archive.is/account">Log in to access downloads</a></li>` +
 		`<li class="list-disc"><span class="font-medium text-[#444]">Slow Partner Server #1</span><a href="https://annas-archive.is/slow_download/abc/0/0">Download</a></li></div>`

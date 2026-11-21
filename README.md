@@ -4,7 +4,7 @@ Search, inspect, and download books from Anna’s Archive with a terminal app bu
 
 ![booxd search results in the terminal](docs/images/tui-search.png)
 
-booxd provides search, book details, gated downloads, and an interactive TUI. The `search`, `show`, `get`, and `tui` commands can also use a Z-Library EAPI host that you configure; see [Z-Library](#z-library). It runs in the foreground; `serve` is not implemented. On Android, `get --open` hands a saved file to `termux-open` and Android’s default file handler.
+booxd provides search, book details, gated downloads, and an interactive TUI. The `search`, `show`, `get`, and `tui` commands can also use a Z-Library EAPI host that you configure; see [Z-Library](#z-library). `search --source irc` adds an experimental IRC channel search. It runs in the foreground; `serve` is not implemented. On Android, `get --open` hands a saved file to `termux-open` and Android’s default file handler.
 
 ## Installation
 
@@ -118,7 +118,7 @@ Flags go before the search query or book ID. `tui` reads config from `BOOXD_CONF
 
 | Command | Arguments and flags | Purpose |
 | --- | --- | --- |
-| `booxd search` | `--config`, `--source` (anna), `--mirror`, `--page` (1), `--dump-html`, `--max-age` (24h), `--no-cache`, `--verbose`, `--language`, `--format` (both Z-Library only, repeatable); query | Search the catalog. `--mirror` skips discovery; `--dump-html` writes raw or cached HTML. `--language` and `--format` filter results on the Z-Library host. |
+| `booxd search` | `--config`, `--source` (anna, zlibrary, or experimental irc), `--mirror`, `--page` (1), `--dump-html`, `--max-age` (24h), `--no-cache`, `--verbose`, `--language`, `--format` (both Z-Library only, repeatable); query | Search the catalog. `--mirror` skips discovery; `--dump-html` writes raw or cached HTML. `--language` and `--format` filter results on the Z-Library host. `--source irc` searches the configured IRC channel; anna-only and Z-Library-only flags are rejected. |
 | `booxd show` | `--config`, `--source` (anna), `--mirror`, `--verbose`; one book ID | Show metadata and download options. |
 | `booxd get` | `--config`, `--source` (anna), `--cookies`, `--mirror`, `--open`, `--verbose`; one book ID | Download with a supplied Netscape cookie jar. `--open` invokes `termux-open` on Android. |
 | `booxd tui` | `--source` (anna), `--mono` | Open interactive search. `--source` sets the first source; `--mono` selects monochrome theme. |
@@ -132,13 +132,13 @@ booxd show BOOK_ID
 booxd get --cookies cookies.txt BOOK_ID
 ```
 
-`--source` accepts `anna` and `zlibrary`; `anna` is the default. `--source irc` exits with status 2 and `booxd: irc books are not available yet`. Any other value exits with status 2 and `booxd: unknown source "<value>"`.
+`--source` accepts `anna`, `zlibrary`, and `irc`; `anna` is the default. IRC search is experimental: it joins the `[irc] channel` on `[irc] server`, prints one `irc: searching <channel> (experimental source)` line, then prints results. The first column is a source-qualified reference such as `irc:%21artemis_serv%2016d6770d2ba9%20%7C%20The%20Last%20Hero.pdf`; it carries the request needed to reproduce the offer and round-trips through `source.Parse` and `BookFromRef`. An empty result set is not an error. A dial, send, timeout, or malformed-archive failure exits with status 1 and prints `booxd: <error>`; cancellation is reported the same way. Any other `--source` value exits with status 2 and `booxd: unknown source "<value>"`.
 
 `BOOK_ID` is the ID that `search` prints. For Anna's Archive it is `36451`, the same ID with a slug (`36451-the-hobbit`), or the qualified form `anna:36451`. For Z-Library it is `zlibrary:36451/<hash>`, or `36451/<hash>` with `--source zlibrary`. A source prefix in `BOOK_ID` wins over `--source`. A reference that names `irc` exits with status 2 and `booxd: irc books are not available yet`.
 
-`--mirror`, `--cookies`, `--dump-html`, and `--max-age` apply to Anna's Archive only. With Z-Library they exit with status 2 and `booxd: --<flag> applies to anna only`. With Z-Library, `--no-cache` skips both reading and writing the cache.
+`--mirror`, `--cookies`, `--dump-html`, and `--max-age` apply to Anna's Archive only. With Z-Library or IRC they exit with status 2 and `booxd: --<flag> applies to anna only`. `--page` applies to Anna's Archive and Z-Library; with IRC, a value other than `1` exits with status 2 and `booxd: --page applies to anna and zlibrary only`. With Z-Library, `--no-cache` skips both reading and writing the cache. IRC never caches results, so `--no-cache` is accepted and ignored.
 
-`--language` and `--format` apply to Z-Library only. With `anna` they exit with status 2 and `booxd: --<flag> applies to zlibrary only`. Each flag takes one value per use and can be repeated; a comma list is not accepted. The Z-Library host does the filtering, so results match its EAPI behaviour; booxd does not re-filter. A TUI selector may follow; for now the flags are CLI-only.
+`--language` and `--format` apply to Z-Library only. With `anna` or `irc` they exit with status 2 and `booxd: --<flag> applies to zlibrary only`. Each flag takes one value per use and can be repeated; a comma list is not accepted. The Z-Library host does the filtering, so results match its EAPI behaviour; booxd does not re-filter. A TUI selector may follow; for now the flags are CLI-only.
 
 `--language` accepts an ISO 639-1 code or the EAPI name it maps to: `en`, `fa`, `fr`, `de`, `es`, `it`, `pt`, `ru`, `zh`, `ja`, `ko`, `ar`, `hi`, `bn`, `tr`, `pl`, `nl`, `sv`, `no`, `da`, `fi`, `cs`, `el`, `he`, `hu`, `id`, `ro`, `sk`, `uk`, `vi`, `th`, `bg`, `sr`, `hr`, `sl`, `et`, `lv`, `lt`, `ca`, `ms`, `ur`, `sw`, `ta`, `te`, `ml`, `kn`, `gu`, `pa`, `ne`, `si`, `km`, `lo`, `my`, `ka`, `hy`, `az`, `kk`, `uz`, `be`, `mk`, `sq`, `bs`, `is`, `ga`, `cy`, `mt`, `lb`, `af`, `am`, `yo`, `ig`, `ha`, `zu`, `xh`, `so`, `ps`, `ku`, `tg`, `ky`, `mn`, `bo`, `dz`, `ug`. The matching EAPI name (for example `english` for `en`, `persian` for `fa`) is also accepted. An unknown value exits with status 2 and `booxd: unknown language "<value>"`. `--format` accepts `AZW`, `AZW3`, `CBZ`, `DJV`, `DJVU`, `EPUB`, `FB2`, `LIT`, `MOBI`, `PDF`, `RTF`, `TXT`, case-insensitively. An unknown value exits with status 2 and `booxd: unknown format "<value>"`.
 
@@ -221,7 +221,10 @@ Export the session file from a browser where you are signed in. booxd never sign
 | `zlibrary: host did not answer: <host>` | The Z-Library host timed out or refused the connection. Check the network and `base_url`, then try again. In the TUI, the message shows on the status line. |
 | `zlibrary: download link expired or refused (status N); run get again` | The host rejected the download link with status 401, 403, 404, or 410. Run `get` again for a fresh link. In the TUI, the download row shows `failed`; press `d` again. |
 | `down: server sent a web page or an empty body, not a book` | The server answered with a web page, such as a sign-in page, or with nothing. booxd saves no file. Check the session or cookie file, then try again. |
-| `--mirror applies to anna only` | Remove Anna-only flags when you use `--source zlibrary` or a `zlibrary:` ID. |
+| `irc: searching #... (experimental source)` | Informational: IRC search is experimental. Wait for the bot's reply; one line is printed per invocation, with no spinner or progress updates. |
+| `booxd: irc: ...` or `booxd: source irc: ...` | Check `[irc] server`, `nick`, `channel`, and `search_timeout` (or their `BOOXD_IRC_*` variables), plus network access. A missing search bot or a malformed archive surfaces here; booxd does not retry. |
+| `booxd: --page applies to anna and zlibrary only` | Omit `--page` when you use `--source irc`; IRC has no result pages. |
+| `booxd: --mirror applies to anna only` | Remove Anna-only flags when you use `--source zlibrary` or `--source irc`, or a `zlibrary:` ID. |
 
 ```sh
 export BOOXD_DOWNLOAD_DIR="$HOME/storage/downloads"

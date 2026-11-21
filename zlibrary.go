@@ -20,7 +20,7 @@ import (
 	"github.com/curedbylethe/booxd/internal/tui"
 )
 
-const sourceUsage = "book source: anna or zlibrary"
+const sourceUsage = "book source: anna, zlibrary or irc"
 
 // parseSourceFlag accepts a --source value that names a known source.
 func parseSourceFlag(raw string, stderr io.Writer) (source.Name, bool) {

@@ -123,7 +123,6 @@ func TestSourceUnknown(t *testing.T) {
 func TestSourceIRCRefused(t *testing.T) {
 	withGetEnvironment(t, t.TempDir())
 	for _, args := range [][]string{
-		{"search", "--source", "irc", "q"},
 		{"show", "--source", "irc", "16d6770d2ba9"},
 		{"get", "--source", "irc", "16d6770d2ba9"},
 		{"show", "irc:16d6770d2ba9"},
