@@ -352,6 +352,107 @@ func TestRedirectFollowed(t *testing.T) {
 	}
 }
 
+func TestRedirectCrossOriginDropsCookie(t *testing.T) {
+	file := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Cookie"); got != "" {
+			t.Errorf("cross-origin Cookie = %q", got)
+		}
+		w.Header().Set("Content-Length", "4")
+		_, _ = io.WriteString(w, "data")
+	}))
+	defer file.Close()
+	// The jar scopes cookies by host, not port, so the second origin needs another host name.
+	fileURL := strings.Replace(file.URL, "127.0.0.1", "localhost", 1)
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if cookie, err := r.Cookie("sid"); err != nil || cookie.Value != "dummy" {
+			t.Errorf("sid cookie = %v, error = %v", cookie, err)
+		}
+		http.Redirect(w, r, fileURL+"/book.epub", http.StatusFound)
+	}))
+	defer origin.Close()
+	jar, _ := cookiejar.New(nil)
+	u, _ := url.Parse(origin.URL)
+	jar.SetCookies(u, []*http.Cookie{{Name: "sid", Value: "dummy"}})
+	client := fetch.New(fetch.WithInterval(0), fetch.WithTimeout(0), fetch.WithJar(jar))
+	got, err := Download(context.Background(), client, Request{URL: origin.URL + "/start", Dir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertFile(t, got, "data")
+}
+
+func TestRedirectSameOriginKeepsRangeAndCookie(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if cookie, err := r.Cookie("sid"); err != nil || cookie.Value != "dummy" {
+			t.Errorf("%s sid cookie = %v, error = %v", r.URL.Path, cookie, err)
+		}
+		if r.Header.Get("Range") == "" {
+			w.Header().Set("Content-Length", "0")
+			return
+		}
+		if r.URL.Path == "/book.epub" {
+			http.Redirect(w, r, "/cdn/book.epub", http.StatusFound)
+			return
+		}
+		if got := r.Header.Get("Range"); got != "bytes=5-" {
+			t.Errorf("redirected Range = %q", got)
+		}
+		w.Header().Set("Content-Range", "bytes 5-9/10")
+		w.Header().Set("Content-Length", "5")
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = io.WriteString(w, "world")
+	}))
+	defer server.Close()
+	jar, _ := cookiejar.New(nil)
+	u, _ := url.Parse(server.URL)
+	jar.SetCookies(u, []*http.Cookie{{Name: "sid", Value: "dummy"}})
+	client := fetch.New(fetch.WithInterval(0), fetch.WithTimeout(0), fetch.WithJar(jar))
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "book.epub.part"), []byte("hello"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Download(context.Background(), client, Request{URL: server.URL + "/book.epub", Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertFile(t, got, "helloworld")
+}
+
+func TestRedirectHTTPSDowngradeRefused(t *testing.T) {
+	var plainCalls atomic.Int32
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		plainCalls.Add(1)
+		_, _ = io.WriteString(w, "x")
+	}))
+	defer plain.Close()
+	secure := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, plain.URL+"/book.epub", http.StatusFound)
+	}))
+	defer secure.Close()
+	// fetch has no transport option; New copies http.DefaultTransport, so swap it to trust the test certificate.
+	saved := http.DefaultTransport
+	http.DefaultTransport = secure.Client().Transport
+	defer func() { http.DefaultTransport = saved }()
+	dir := t.TempDir()
+	_, err := Download(context.Background(), downClient(), Request{URL: secure.URL + "/start", Dir: dir})
+	if !errors.Is(err, ErrInsecureRedirect) || plainCalls.Load() != 0 {
+		t.Fatalf("error = %v, plain calls = %d", err, plainCalls.Load())
+	}
+	assertMissing(t, filepath.Join(dir, "book.epub"))
+}
+
+func TestRedirectErrorHidesURL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Location", "ftp://cdn.example/x?token=secret")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer server.Close()
+	_, err := Download(context.Background(), downClient(), Request{URL: server.URL + "/start", Dir: t.TempDir()})
+	if err == nil || !strings.Contains(err.Error(), `unsupported scheme "ftp"`) || strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), "/x") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestRedirectBudget(t *testing.T) {
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
