@@ -2,6 +2,7 @@ package source
 
 import (
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 )
@@ -47,6 +48,12 @@ func Parse(s string) (Ref, error) {
 		return Ref{}, fmt.Errorf("source: unknown source %q", left)
 	}
 	id, hash, _ := strings.Cut(right, "/")
+	if name == IRC {
+		var err error
+		if id, err = url.PathUnescape(id); err != nil {
+			return Ref{}, fmt.Errorf("source: invalid book id %q", right)
+		}
+	}
 	ref := Ref{Source: name, ID: id, Hash: hash}
 	if err := ref.Validate(); err != nil {
 		return Ref{}, err
@@ -63,7 +70,12 @@ func (r Ref) String() string {
 	if r.Source == Anna {
 		return r.ID
 	}
-	s := string(r.Source) + ":" + r.ID
+	// An IRC ID is any token the bot prints, so escape the "/" and "%" the display form reserves.
+	id := r.ID
+	if r.Source == IRC {
+		id = url.PathEscape(id)
+	}
+	s := string(r.Source) + ":" + id
 	if r.Hash != "" {
 		s += "/" + r.Hash
 	}
@@ -99,8 +111,7 @@ func (r Ref) Validate() error {
 			return fmt.Errorf("source: invalid hash %q", r.Hash)
 		}
 	case IRC:
-		// An offer ID is any token the bot prints; only the display form's separators are barred.
-		if r.ID == "" || strings.ContainsAny(r.ID, "/ \t\r\n") {
+		if r.ID == "" {
 			return fmt.Errorf("source: invalid book id %q", r.ID)
 		}
 		if r.Hash != "" && !alnum(r.Hash) {
