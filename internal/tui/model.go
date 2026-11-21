@@ -102,7 +102,12 @@ func handleKey(m model, ev *tcell.EventKey) (model, action) {
 			m.view = stateResults
 			return m, action{dirty: true}
 		case tcell.KeyTab:
+			// The shown results must not survive into the new source: drop
+			// them so a pending or failed search leaves nothing to select.
 			m.source = nextSource(m.source)
+			m.books = nil
+			m.selected = 0
+			m.offset = 0
 			return m, action{dirty: true}
 		case tcell.KeyBackspace, tcell.KeyBackspace2:
 			if m.caret > 0 {
@@ -154,8 +159,12 @@ func handleKey(m model, ev *tcell.EventKey) (model, action) {
 			return m, action{dirty: true}
 		case tcell.KeyTab:
 			// The shown results follow the shown source, so a known query is
-			// searched again on the new one.
+			// searched again on the new one. Drop the old source's rows so
+			// nothing of theirs stays selectable while that search runs.
 			m.source = nextSource(m.source)
+			m.books = nil
+			m.selected = 0
+			m.offset = 0
 			return m, action{dirty: true, search: m.query != ""}
 		case tcell.KeyEnter:
 			if len(m.books) > 0 {

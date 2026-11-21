@@ -147,6 +147,29 @@ func TestApplyResultsFailureKeepsRows(t *testing.T) {
 	}
 }
 
+func TestTabSwitchClearsStaleResults(t *testing.T) {
+	books := []parse.Book{{ID: annaRef("old")}}
+	tab := tcell.NewEventKey(tcell.KeyTab, 0, tcell.ModNone)
+
+	m := model{view: stateResults, books: books, selected: 2, offset: 3, query: "q"}
+	m, a := handleKey(m, tab)
+	if m.books != nil || m.selected != 0 || m.offset != 0 {
+		t.Fatalf("results view: books=%v selected=%d offset=%d", m.books, m.selected, m.offset)
+	}
+	if a != (action{dirty: true, search: true}) {
+		t.Fatalf("results view: action=%+v", a)
+	}
+
+	m = model{view: stateQuery, books: books, selected: 2, offset: 3, query: "q"}
+	m, a = handleKey(m, tab)
+	if m.books != nil || m.selected != 0 || m.offset != 0 {
+		t.Fatalf("query view: books=%v selected=%d offset=%d", m.books, m.selected, m.offset)
+	}
+	if a != (action{dirty: true}) {
+		t.Fatalf("query view: action=%+v", a)
+	}
+}
+
 func TestDetailScrollClamps(t *testing.T) {
 	var lines []string
 	for i := 0; i < 30; i++ {
