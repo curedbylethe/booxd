@@ -261,6 +261,47 @@ func TestProgressWholePercent(t *testing.T) {
 	}
 }
 
+// The byte callback must report every write, with or without a known size.
+func TestBytesCallbackReportsEveryWrite(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		length bool
+	}{{"known total", true}, {"unknown total", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := strings.Repeat("x", 100)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				if tc.length {
+					w.Header().Set("Content-Length", fmt.Sprint(len(body)))
+				}
+				flusher := w.(http.Flusher)
+				for i := 0; i < len(body); i += 10 {
+					_, _ = io.WriteString(w, body[i:i+10])
+					flusher.Flush()
+				}
+			}))
+			defer server.Close()
+			var calls, done, total int64
+			req := Request{URL: server.URL + "/book.epub", Dir: t.TempDir()}
+			req.Bytes = func(d, t int64) {
+				calls++
+				done, total = d, t
+			}
+			if _, err := Download(context.Background(), downClient(), req); err != nil {
+				t.Fatal(err)
+			}
+			wantTotal := int64(-1)
+			if tc.length {
+				wantTotal = 100
+			}
+			// Without a length the transport may coalesce the flushed
+			// chunks; two reports still prove unknown sizes are reported.
+			if calls < 2 || done != 100 || total != wantTotal {
+				t.Fatalf("calls=%d done=%d total=%d, want >=2 calls, done=100, total=%d", calls, done, total, wantTotal)
+			}
+		})
+	}
+}
+
 func TestNoLengthSkipsProgress(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.(http.Flusher).Flush()

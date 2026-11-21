@@ -45,6 +45,10 @@ type Request struct {
 	Dir      string
 	Name     string
 	Progress io.Writer
+	// Bytes reports done against total (−1 when the size is unknown) after
+	// every write and once at the end, whether or not Progress lines are
+	// being written.
+	Bytes func(done, total int64)
 }
 
 const maxRedirects = 3
@@ -189,7 +193,7 @@ func Download(ctx context.Context, client *fetch.Client, req Request) (string, e
 				if err := renamePart(part, final); err != nil {
 					return "", err
 				}
-				progress := newProgress(req.Progress, total, have)
+				progress := newProgress(req.Progress, req.Bytes, total, have)
 				progress.finish()
 				return final, nil
 			}
@@ -226,7 +230,7 @@ func Download(ctx context.Context, client *fetch.Client, req Request) (string, e
 				total = rangeTotal
 			}
 		}
-		progress := newProgress(req.Progress, total, have)
+		progress := newProgress(req.Progress, req.Bytes, total, have)
 		written, copyErr := io.CopyBuffer(progressWriter{file: file, progress: progress}, body, make([]byte, 32*1024))
 		_ = stream.Body.Close()
 		if copyErr != nil {
@@ -453,16 +457,20 @@ func partSize(path string) (int64, error) {
 
 type progress struct {
 	writer io.Writer
+	bytes  func(done, total int64)
 	total  int64
 	done   int64
 	last   int64
 }
 
-func newProgress(writer io.Writer, total, done int64) *progress {
-	return &progress{writer: writer, total: total, done: done, last: -1}
+func newProgress(writer io.Writer, bytes func(done, total int64), total, done int64) *progress {
+	return &progress{writer: writer, bytes: bytes, total: total, done: done, last: -1}
 }
 
 func (p *progress) advance() {
+	if p.bytes != nil {
+		p.bytes(p.done, p.total)
+	}
 	if p.writer == nil || p.total <= 0 {
 		return
 	}
@@ -477,6 +485,9 @@ func (p *progress) advance() {
 }
 
 func (p *progress) finish() {
+	if p.bytes != nil {
+		p.bytes(p.done, p.total)
+	}
 	if p.writer != nil && p.total > 0 && p.last < 100 {
 		_, _ = io.WriteString(p.writer, "100%\n")
 		p.last = 100

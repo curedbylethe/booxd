@@ -212,7 +212,7 @@ func getZLibrary(cfg config.Config, ref source.Ref, open bool, log, stdout, stde
 	if err != nil {
 		return zlibraryPrerequisite(stderr, err)
 	}
-	path, err := downloadZLibrary(context.Background(), s, client, cfg, ref, stderr)
+	path, err := downloadZLibrary(context.Background(), s, client, cfg, ref, stderr, nil)
 	if err != nil && !errors.Is(err, down.ErrExists) {
 		return zlibraryFailure(stderr, err)
 	}
@@ -228,9 +228,10 @@ func transferConfig(cfg config.Config) config.Config {
 }
 
 // downloadZLibrary resolves ref's link and saves the file, writing down's
-// progress lines to progress. client must come from transferConfig. A file
-// already present returns its path with down.ErrExists.
-func downloadZLibrary(ctx context.Context, s *zlibrary.Searcher, client *fetch.Client, cfg config.Config, ref source.Ref, progress io.Writer) (string, error) {
+// progress lines to progress and byte counts to bytes (nil ignores either).
+// client must come from transferConfig. A file already present returns its
+// path with down.ErrExists.
+func downloadZLibrary(ctx context.Context, s *zlibrary.Searcher, client *fetch.Client, cfg config.Config, ref source.Ref, progress io.Writer, bytes func(done, total int64)) (string, error) {
 	pageCtx, cancel := context.WithTimeout(ctx, cfg.RequestTimeout)
 	detail, err := s.Detail(pageCtx, ref)
 	var link url.URL
@@ -246,6 +247,7 @@ func downloadZLibrary(ctx context.Context, s *zlibrary.Searcher, client *fetch.C
 		Dir:      cfg.DownloadDir,
 		Name:     zlibrary.SaveName(ref, detail.Format),
 		Progress: progress,
+		Bytes:    bytes,
 	})
 	// The link was just resolved, so these statuses mean the host expired or refused it.
 	var status *down.StatusError
@@ -314,7 +316,7 @@ func (z tuiZLibrary) download(ctx context.Context, ref source.Ref, progress func
 	if err != nil {
 		return "", fmt.Errorf("%w: %v", tui.ErrFailed, err)
 	}
-	path, err := downloadZLibrary(ctx, z.s, z.client, z.cfg, ref, percentWriter(progress))
+	path, err := downloadZLibrary(ctx, z.s, z.client, z.cfg, ref, nil, progress)
 	switch {
 	case err == nil:
 		return path, nil
@@ -329,19 +331,6 @@ func (z tuiZLibrary) download(ctx context.Context, ref source.Ref, progress func
 		return "", context.Canceled
 	}
 	return "", err
-}
-
-// percentWriter turns down's "N%" progress lines into progress(N, 100).
-// shortcut: down reports whole percents only and nothing when the size is
-// unknown, so the TUI never gets a byte count; report bytes from down when that matters.
-type percentWriter func(done, total int64)
-
-func (f percentWriter) Write(p []byte) (int, error) {
-	var percent int64
-	if _, err := fmt.Sscanf(string(p), "%d%%", &percent); err == nil {
-		f(percent, 100)
-	}
-	return len(p), nil
 }
 
 // toParseBooks and toParseDetail are the only code that knows both the
