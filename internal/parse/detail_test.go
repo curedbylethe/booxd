@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/curedbylethe/booxd/internal/source"
 )
 
 func TestDetailPageFixtures(t *testing.T) {
@@ -14,11 +16,11 @@ func TestDetailPageFixtures(t *testing.T) {
 	}{
 		{
 			name: "book-detail.html",
-			want: Detail{ID: "36451", Title: "Test", Year: "2022", Language: "English", Format: "PDF", Size: "51.0 MB", Pages: "1", LoginWall: true},
+			want: Detail{ID: source.Ref{Source: source.Anna, ID: "36451"}, Title: "Test", Year: "2022", Language: "English", Format: "PDF", Size: "51.0 MB", Pages: "1", LoginWall: true},
 		},
 		{
 			name: "book-detail-rich.html",
-			want: Detail{ID: "30208739", Title: "Test", Author: "Sleator, William", Publisher: "Amulet Books", Year: "2010", Language: "English", Format: "EPUB", Size: "3.0 MB", ISBN: "9780810993563,9780810989894", LoginWall: true},
+			want: Detail{ID: source.Ref{Source: source.Anna, ID: "30208739"}, Title: "Test", Author: "Sleator, William", Publisher: "Amulet Books", Year: "2010", Language: "English", Format: "EPUB", Size: "3.0 MB", ISBN: "9780810993563,9780810989894", LoginWall: true},
 		},
 	}
 	for _, tt := range tests {

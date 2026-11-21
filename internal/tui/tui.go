@@ -80,8 +80,8 @@ func runScreenWithTheme(ctx context.Context, screen tcell.Screen, search SearchF
 				m.status = "…"
 				m.statusErr = false
 				paint(screen, m)
-				if m.selected < len(m.books) && m.books[m.selected].ID != "" {
-					result, err := detail(ctx, m.books[m.selected].ID)
+				if m.selected < len(m.books) && !m.books[m.selected].ID.IsZero() {
+					result, err := detail(ctx, m.books[m.selected].ID.String())
 					if err != nil {
 						m.status = err.Error()
 						m.statusErr = true

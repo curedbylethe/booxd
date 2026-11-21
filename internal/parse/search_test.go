@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/curedbylethe/booxd/internal/source"
 )
 
 func fixture(t *testing.T, name string) []byte {
@@ -36,7 +38,7 @@ func TestSearchHitPage(t *testing.T) {
 	}
 	for _, tt := range tests {
 		b := books[tt.index]
-		if b.ID != tt.id || b.Slug != tt.slug || b.Title != tt.title || b.Author != tt.author || b.Year != tt.year || b.Format != tt.format || b.Size != tt.size || b.Publisher != tt.publisher || b.Language != "" {
+		if b.ID.ID != tt.id || b.Slug != tt.slug || b.Title != tt.title || b.Author != tt.author || b.Year != tt.year || b.Format != tt.format || b.Size != tt.size || b.Publisher != tt.publisher || b.Language != "" {
 			t.Errorf("row %d: %+v", tt.index+1, b)
 		}
 	}
@@ -65,7 +67,7 @@ func TestSearchMinimalCard(t *testing.T) {
 	if err != nil || len(books) != 1 {
 		t.Fatalf("books: %+v, error: %v", books, err)
 	}
-	if books[0] != (Book{ID: "1", Slug: "one", Title: "One", URL: "/books/1-one"}) {
+	if books[0] != (Book{ID: source.Ref{Source: source.Anna, ID: "1"}, Slug: "one", Title: "One", URL: "/books/1-one"}) {
 		t.Fatalf("book: %+v", books[0])
 	}
 }
@@ -113,7 +115,7 @@ func TestSearchNonLatinPage(t *testing.T) {
 		{4, "7812190", "Преступление и наказание (Russian Edition)", "", "2015", "EPUB", "1 B", `Издательство "Проспект"`},
 	} {
 		b := books[tt.index]
-		if b.ID != tt.id || b.Title != tt.title || b.Author != tt.author || b.Year != tt.year || b.Format != tt.format || b.Size != tt.size || b.Publisher != tt.publisher {
+		if b.ID.ID != tt.id || b.Title != tt.title || b.Author != tt.author || b.Year != tt.year || b.Format != tt.format || b.Size != tt.size || b.Publisher != tt.publisher {
 			t.Errorf("row %d: %+v", tt.index+1, b)
 		}
 	}
@@ -128,11 +130,11 @@ func TestSearchPage2(t *testing.T) {
 		t.Fatalf("got %d books, error: %v", len(books), err)
 	}
 	first := books[0]
-	if first.ID != "29764399" || first.Title != "TEST [Erzählungen]" || first.Author != "Lem, Stanislaw" || first.Year != "2011" || first.Format != "PDF" || first.Size != "1.1 MB" {
+	if first.ID.ID != "29764399" || first.Title != "TEST [Erzählungen]" || first.Author != "Lem, Stanislaw" || first.Year != "2011" || first.Format != "PDF" || first.Size != "1.1 MB" {
 		t.Errorf("first row: %+v", first)
 	}
 	last := books[19]
-	if last.ID != "34183821" || last.Slug != "test-ammissione-medicina-ondontoiatria-veterina" || last.Title != "Test ammissione. Medicina, ondontoiatria, veterinaria, professioni sanitarie. Teoria e quiz dell'esercitatore... Manuale completo per la preparazione ai nuovi test.." || last.Author != "" || last.Year != "2014" || last.Format != "" || last.Size != "1 B" || last.Publisher != "Edizioni Giuridiche Simone" {
+	if last.ID.ID != "34183821" || last.Slug != "test-ammissione-medicina-ondontoiatria-veterina" || last.Title != "Test ammissione. Medicina, ondontoiatria, veterinaria, professioni sanitarie. Teoria e quiz dell'esercitatore... Manuale completo per la preparazione ai nuovi test.." || last.Author != "" || last.Year != "2014" || last.Format != "" || last.Size != "1 B" || last.Publisher != "Edizioni Giuridiche Simone" {
 		t.Errorf("last row: %+v", last)
 	}
 }
@@ -167,10 +169,31 @@ func TestSearchLivePage(t *testing.T) {
 		t.Fatalf("books=%d, want 20", len(books))
 	}
 	first := books[0]
-	if first.ID != "2977300" || first.Title != "Crime And Punishment" || first.Year != "2011" || first.Format != "EPUB" || first.Size != "1 B" {
+	if first.ID.ID != "2977300" || first.Title != "Crime And Punishment" || first.Year != "2011" || first.Format != "EPUB" || first.Size != "1 B" {
 		t.Fatalf("first book=%+v", first)
 	}
 	if first.URL != "https://annas-archive.is/books/2977300-crime-and-punishment-2977300" {
 		t.Fatalf("url=%q", first.URL)
+	}
+}
+
+func TestSearchAmbiguousIDsStayZero(t *testing.T) {
+	page := `<html><body>
+<div class="bg-white rounded-lg shadow p-4 mb-4"><h3><a href="/other/1-x">No books segment</a></h3></div>
+<div class="bg-white rounded-lg shadow p-4 mb-4"><h3><a href="/books/abc-x">Non-digit id</a></h3></div>
+<div class="bg-white rounded-lg shadow p-4 mb-4"><h3><a href="/books/77-ok">Good</a></h3></div>
+</body></html>`
+	books, err := Search(strings.NewReader(page))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(books) != 3 {
+		t.Fatalf("got %d books, want 3", len(books))
+	}
+	if !books[0].ID.IsZero() || !books[1].ID.IsZero() {
+		t.Errorf("ambiguous cards got IDs %+v %+v, want zero", books[0].ID, books[1].ID)
+	}
+	if want := (source.Ref{Source: source.Anna, ID: "77"}); books[2].ID != want {
+		t.Errorf("ID = %+v, want %+v", books[2].ID, want)
 	}
 }

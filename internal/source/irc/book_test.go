@@ -3,6 +3,8 @@ package irc
 import (
 	"reflect"
 	"testing"
+
+	"github.com/curedbylethe/booxd/internal/source"
 )
 
 func TestParseLine(t *testing.T) {
@@ -126,4 +128,12 @@ func TestParseLine(t *testing.T) {
 			t.Errorf("two books with size %q share ID %q", a.Size, a.ID)
 		}
 	})
+}
+
+func TestBookRef(t *testing.T) {
+	b := Book{ID: "16d6770d2ba9"}
+	want := source.Ref{Source: source.IRC, ID: "16d6770d2ba9"}
+	if got := b.Ref(); got != want || got.String() != "irc:16d6770d2ba9" {
+		t.Fatalf("Ref() = %+v (%s), want %+v", got, got, want)
+	}
 }

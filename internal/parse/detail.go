@@ -6,15 +6,17 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/curedbylethe/booxd/internal/source"
 	"golang.org/x/net/html"
 )
 
 // Detail contains metadata and download options from a book page.
 type Detail struct {
-	ID, Title, Author, Publisher, Year, Language, Format, Size, ISBN, Pages string
-	Description                                                             string
-	Downloads                                                               []Download
-	LoginWall                                                               bool
+	ID                                                                  source.Ref
+	Title, Author, Publisher, Year, Language, Format, Size, ISBN, Pages string
+	Description                                                         string
+	Downloads                                                           []Download
+	LoginWall                                                           bool
 }
 
 // Download describes one download option and whether it requires a session.
@@ -87,7 +89,9 @@ func DetailPage(r io.Reader) (Detail, error) {
 	if len(values) == 0 {
 		return Detail{}, fmt.Errorf("parse detail: no detail table")
 	}
-	detail.ID = values["Record ID"]
+	if id := values["Record ID"]; id != "" {
+		detail.ID = source.Ref{Source: source.Anna, ID: id}
+	}
 	detail.Title = values["Title"]
 	detail.Author = values["Author"]
 	detail.Publisher = values["Publisher"]

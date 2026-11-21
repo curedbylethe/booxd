@@ -3,6 +3,8 @@ package irc
 import (
 	"path"
 	"strings"
+
+	"github.com/curedbylethe/booxd/internal/source"
 )
 
 // Book is one parsed result line from an @search answer.
@@ -14,6 +16,10 @@ type Book struct {
 	Size   string // value after "::INFO::", display only, e.g. "49.78MB"
 	Raw    string // the whole "!" line, including the "::INFO::" tail
 }
+
+// Ref returns the book's source-qualified identity. The wire "::HASH::" tail
+// is not captured, so the hash is empty.
+func (b Book) Ref() source.Ref { return source.Ref{Source: source.IRC, ID: b.ID} }
 
 // parseLine returns false for anything that is not a well-formed result line.
 func parseLine(line string) (Book, bool) {
