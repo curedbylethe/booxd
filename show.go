@@ -95,8 +95,9 @@ func (e statusError) Error() string { return fmt.Sprintf("status %d", e.code) }
 // base URL.
 func loadDetail(ctx context.Context, cfg config.Config, ref source.Ref, pagePath, override string, store *cache.Store, resolve resolveFunc, newClient clientFunc, log, mirror io.Writer) (parse.Detail, error) {
 	now := time.Now()
+	key := cache.RefKey(ref)
 	if store != nil {
-		if entry, ok := store.Get("book:"+ref.ID, 0); ok && entry.Status == http.StatusOK {
+		if entry, ok := store.Get(key); ok && entry.Status == http.StatusOK {
 			age := now.Sub(entry.FetchedAt)
 			if age >= 0 && age < cache.DefaultTTL {
 				if detail, parseErr := parse.DetailPage(bytes.NewReader(entry.Body)); parseErr == nil {
@@ -126,7 +127,7 @@ func loadDetail(ctx context.Context, cfg config.Config, ref source.Ref, pagePath
 		return parse.Detail{}, err
 	}
 	if store != nil {
-		_ = store.Put(cache.Entry{Query: "book:" + ref.ID, Page: 0, Status: http.StatusOK, FetchedAt: now, Body: response.Body})
+		_ = store.Put(cache.Entry{Key: key, Query: ref.String(), Page: 0, Status: http.StatusOK, FetchedAt: now, Body: response.Body})
 	}
 	return detail, nil
 }

@@ -83,7 +83,7 @@ func TestCheckFailedLookupRecordsAttempt(t *testing.T) {
 			if offer.Current != "v1.2.3" || offer.Available || offer.Latest != "" {
 				t.Fatalf("offer = %#v; want current only and no offer", offer)
 			}
-			entry, ok := store.Get(stateKey, 0)
+			entry, ok := store.Get(cache.Key(stateKey))
 			if !ok {
 				t.Fatal("attempt not recorded; every start would retry the lookup")
 			}
@@ -189,7 +189,7 @@ func TestDeclineWithoutState(t *testing.T) {
 	if err := Decline(store, time.Unix(1_700_000_000, 0)); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := store.Get(stateKey, 0); !ok {
+	if _, ok := store.Get(cache.Key(stateKey)); !ok {
 		t.Fatal("decline not persisted")
 	}
 }

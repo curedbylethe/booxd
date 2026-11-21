@@ -13,6 +13,7 @@ import (
 	"github.com/curedbylethe/booxd/internal/config"
 	"github.com/curedbylethe/booxd/internal/fetch"
 	"github.com/curedbylethe/booxd/internal/parse"
+	"github.com/curedbylethe/booxd/internal/source"
 )
 
 type searchOptions struct {
@@ -45,8 +46,10 @@ func newSearcher(cfg config.Config, client *fetch.Client, store *cache.Store, re
 func (s *searcher) search(ctx context.Context, query string, opts searchOptions) (searchOutcome, error) {
 	var cached cache.Entry
 	hit := false
+	// source.Anna is the only provider searched today; #35 passes the selected one.
+	key := cache.SearchKey(source.Anna, query, opts.Page)
 	if s.store != nil && !opts.NoCache {
-		cached, hit = s.store.Get(query, opts.Page)
+		cached, hit = s.store.Get(key)
 	}
 	age := s.now().Sub(cached.FetchedAt)
 	if hit && age >= 0 && age < opts.MaxAge {
@@ -95,7 +98,7 @@ func (s *searcher) search(ctx context.Context, query string, opts searchOptions)
 		return searchOutcome{Body: body}, err
 	}
 	if len(books) > 0 && s.store != nil {
-		_ = s.store.Put(cache.Entry{Query: query, Page: opts.Page, Status: resp.StatusCode, FetchedAt: s.now(), Body: body})
+		_ = s.store.Put(cache.Entry{Key: key, Query: query, Page: opts.Page, Status: resp.StatusCode, FetchedAt: s.now(), Body: body})
 	}
 	return searchOutcome{Books: books, Body: body}, nil
 }

@@ -91,7 +91,7 @@ func TestRunShow(t *testing.T) {
 				if tt.seedFuture {
 					fetchedAt = time.Now().Add(time.Hour)
 				}
-				if err := cache.Open(dir).Put(cache.Entry{Query: "book:36451", Page: 0, Status: tt.seedStatus, FetchedAt: fetchedAt, Body: tt.seedBody}); err != nil {
+				if err := cache.Open(dir).Put(cache.Entry{Key: cache.RefKey(source.Ref{Source: source.Anna, ID: "36451"}), Query: "book:36451", Page: 0, Status: tt.seedStatus, FetchedAt: fetchedAt, Body: tt.seedBody}); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -140,7 +140,7 @@ func TestRunShow(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				entry, ok := cache.Open(dir).Get("book:36451", 0)
+				entry, ok := cache.Open(dir).Get(cache.RefKey(source.Ref{Source: source.Anna, ID: "36451"}))
 				if tt.wantNoEntry && ok {
 					t.Fatal("unexpected cache entry")
 				}
@@ -150,14 +150,14 @@ func TestRunShow(t *testing.T) {
 			}
 			if tt.name == "fresh cache" {
 				dir, _ := cache.Path(os.Getenv("BOOXD_CACHE_DIR"))
-				entry, ok := cache.Open(dir).Get("book:36451", 0)
+				entry, ok := cache.Open(dir).Get(cache.RefKey(source.Ref{Source: source.Anna, ID: "36451"}))
 				if !ok || !bytes.Equal(entry.Body, full) {
 					t.Fatal("fresh cached body was not retained")
 				}
 			}
 			if tt.name == "stale cache" {
 				dir, _ := cache.Path(os.Getenv("BOOXD_CACHE_DIR"))
-				entry, ok := cache.Open(dir).Get("book:36451", 0)
+				entry, ok := cache.Open(dir).Get(cache.RefKey(source.Ref{Source: source.Anna, ID: "36451"}))
 				if !ok || time.Since(entry.FetchedAt) >= cache.DefaultTTL {
 					t.Fatalf("stale entry was not refreshed: %+v, %v", entry, ok)
 				}
@@ -186,7 +186,7 @@ func TestLoadDetail(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			store := cache.Open(t.TempDir())
 			if tt.seed {
-				if err := store.Put(cache.Entry{Query: "book:24390", Page: 0, Status: http.StatusOK, FetchedAt: time.Now(), Body: full}); err != nil {
+				if err := store.Put(cache.Entry{Key: cache.RefKey(source.Ref{Source: source.Anna, ID: "24390"}), Query: "book:24390", Page: 0, Status: http.StatusOK, FetchedAt: time.Now(), Body: full}); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -212,7 +212,7 @@ func TestLoadDetail(t *testing.T) {
 			if lookups != tt.wantLookups || resolves != tt.wantResolve {
 				t.Fatalf("lookups=%d resolves=%d, want %d %d", lookups, resolves, tt.wantLookups, tt.wantResolve)
 			}
-			if _, ok := store.Get("book:24390", 0); ok != tt.seed {
+			if _, ok := store.Get(cache.RefKey(source.Ref{Source: source.Anna, ID: "24390"})); ok != tt.seed {
 				t.Fatalf("cache entry present=%t, want %t", ok, tt.seed)
 			}
 		})
@@ -249,7 +249,7 @@ func TestRunShowSlugSharesCacheKey(t *testing.T) {
 	if !strings.HasPrefix(out.String(), "title: Test\n") {
 		t.Fatalf("cached output: %q", out.String())
 	}
-	if _, ok := cache.Open(dir).Get("book:36451", 0); !ok {
+	if _, ok := cache.Open(dir).Get(cache.RefKey(source.Ref{Source: source.Anna, ID: "36451"})); !ok {
 		t.Fatal("cache key book:36451 missing")
 	}
 }
