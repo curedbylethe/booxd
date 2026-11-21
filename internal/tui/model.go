@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/curedbylethe/booxd/internal/parse"
+	"github.com/curedbylethe/booxd/internal/source"
 	"github.com/gdamore/tcell/v2"
 )
 
@@ -21,6 +22,10 @@ type model struct {
 	caret        int
 	query        string
 	books        []parse.Book
+	searchSeq    int
+	source       source.Name
+	book         parse.Book
+	download     downloadState
 	selected     int
 	offset       int
 	status       string
@@ -31,14 +36,42 @@ type model struct {
 	width        int
 	height       int
 	hasDetail    bool
+	hasDownload  bool
 	theme        theme
 }
 
+// downloadState is the one download slot: the book it belongs to, the text of
+// its detail row, and whether it is still running.
+type downloadState struct {
+	ref  source.Ref
+	text string
+	busy bool
+}
+
 type action struct {
-	dirty  bool
-	quit   bool
-	search bool
-	detail bool
+	dirty    bool
+	quit     bool
+	search   bool
+	detail   bool
+	download bool
+	cancel   bool
+}
+
+// downloading reports whether the shown book's download is running.
+func (m model) downloading() bool {
+	return m.download.busy && m.download.ref == m.book.ID
+}
+
+// showsDetail reports whether the frame shows ref's detail screen.
+func (m model) showsDetail(ref source.Ref) bool {
+	return !m.help && m.view == stateDetail && m.book.ID == ref
+}
+
+func nextSource(from source.Name) source.Name {
+	if from == source.Anna {
+		return source.ZLibrary
+	}
+	return source.Anna
 }
 
 func handleKey(m model, ev *tcell.EventKey) (model, action) {
@@ -67,6 +100,9 @@ func handleKey(m model, ev *tcell.EventKey) (model, action) {
 			return m, action{dirty: true, search: true}
 		case tcell.KeyEscape:
 			m.view = stateResults
+			return m, action{dirty: true}
+		case tcell.KeyTab:
+			m.source = nextSource(m.source)
 			return m, action{dirty: true}
 		case tcell.KeyBackspace, tcell.KeyBackspace2:
 			if m.caret > 0 {
@@ -116,9 +152,15 @@ func handleKey(m model, ev *tcell.EventKey) (model, action) {
 			m.input = []rune(m.query)
 			m.caret = len(m.input)
 			return m, action{dirty: true}
+		case tcell.KeyTab:
+			// The shown results follow the shown source, so a known query is
+			// searched again on the new one.
+			m.source = nextSource(m.source)
+			return m, action{dirty: true, search: m.query != ""}
 		case tcell.KeyEnter:
 			if len(m.books) > 0 {
 				m.view = stateDetail
+				m.book = m.books[m.selected]
 				m.description = ""
 				m.detailOffset = 0
 				return m, action{dirty: true, detail: m.hasDetail}
@@ -154,6 +196,10 @@ func handleKey(m model, ev *tcell.EventKey) (model, action) {
 	case stateDetail:
 		switch ev.Key() {
 		case tcell.KeyEscape:
+			// The first Esc only cancels, so the outcome stays in view.
+			if m.downloading() {
+				return m, action{cancel: true}
+			}
 			m.view = stateResults
 			m.detailOffset = 0
 			m.status = ""
@@ -174,6 +220,10 @@ func handleKey(m model, ev *tcell.EventKey) (model, action) {
 				return scrollDetail(m, 1)
 			case 'k':
 				return scrollDetail(m, -1)
+			case 'd':
+				if m.hasDownload && m.book.ID.Source == source.ZLibrary && !m.download.busy {
+					return m, action{dirty: true, download: true}
+				}
 			case 'q':
 				return m, action{quit: true}
 			case '?':
@@ -185,10 +235,14 @@ func handleKey(m model, ev *tcell.EventKey) (model, action) {
 	return m, action{}
 }
 
+// descriptionRow is the description label's row: after the ten field rows
+// and one blank row.
+const descriptionRow = 11
+
 // detailBodyRows is the number of lines between the description label and the
 // footer.
 func detailBodyRows(height int) int {
-	return max(0, height-13)
+	return max(0, height-descriptionRow-3)
 }
 
 func clampDetailOffset(m model, offset int) int {
@@ -202,6 +256,15 @@ func scrollDetail(m model, delta int) (model, action) {
 	}
 	m.detailOffset = offset
 	return m, action{dirty: true}
+}
+
+// applySearch applies the result of search seq; a result for an older query or
+// source is dropped, since a newer search owns the screen.
+func applySearch(m model, seq int, books []parse.Book, err error) (model, bool) {
+	if seq != m.searchSeq {
+		return m, false
+	}
+	return applyResults(m, books, err), true
 }
 
 func applyResults(m model, books []parse.Book, err error) model {

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 )
@@ -161,6 +162,17 @@ var ErrHostUnhealthy = errors.New("fetch: host unhealthy after a 403 challenge")
 // ErrRateLimited indicates that a 429 backoff wait was interrupted.
 var ErrRateLimited = errors.New("fetch: waiting for rate limit")
 
+// StatusError reports a 5xx status that persisted through every retry.
+type StatusError struct {
+	Host     string
+	Code     int
+	Attempts int
+}
+
+func (e *StatusError) Error() string {
+	return fmt.Sprintf("fetch: %s returned %d %s after %d attempts", e.Host, e.Code, http.StatusText(e.Code), e.Attempts)
+}
+
 // Response contains the unmodified HTTP status, headers and body.
 type Response struct {
 	StatusCode int
@@ -201,7 +213,14 @@ func (c *Client) Open(ctx context.Context, rawURL string, header http.Header) (*
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	return c.send(ctx, http.MethodGet, u, nil, header)
+}
+
+// send is the only request path: host lock, spacing, 429 and 5xx retries,
+// challenge handling. A body must come from strings, bytes or another type
+// that NewRequest can rewind, because every attempt resends it.
+func (c *Client) send(ctx context.Context, method string, u *url.URL, body io.Reader, header http.Header) (*Stream, error) {
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -258,6 +277,13 @@ func (c *Client) Open(ctx context.Context, rawURL string, header http.Header) (*
 			_, _ = fmt.Fprintf(c.verbose, "fetch: host=%s attempt=%d status=%s wait=%s\n", u.Host, attempt, status, waited)
 		}
 		st.next = c.clock.Now().Add(c.interval)
+		if req.GetBody != nil {
+			// A previous attempt consumed the body; rewind it before resending.
+			if req.Body, err = req.GetBody(); err != nil {
+				release()
+				return nil, err
+			}
+		}
 		started := time.Now()
 		resp, err := c.http.Do(req)
 		if err != nil {
@@ -324,7 +350,7 @@ func (c *Client) Open(ctx context.Context, rawURL string, header http.Header) (*
 				_ = resp.Body.Close()
 			}
 			release()
-			return nil, fmt.Errorf("fetch: %s returned %d %s after %d attempts", u.Host, result.StatusCode, http.StatusText(result.StatusCode), attempt)
+			return nil, &StatusError{Host: u.Host, Code: result.StatusCode, Attempts: attempt}
 		}
 		if result.StatusCode == http.StatusForbidden {
 			body, readErr := io.ReadAll(resp.Body)
@@ -370,15 +396,36 @@ func (c *Client) Get(ctx context.Context, rawURL string) (*Response, error) {
 			return &Response{StatusCode: status, Body: body}, nil
 		}
 	}
-	stream, err := c.Open(ctx, rawURL, nil)
+	return c.read(ctx, http.MethodGet, u, nil, nil)
+}
+
+// Post sends form as an application/x-www-form-urlencoded body with the same
+// host discipline as Get. It never consults the cache lookup. A non-2xx status
+// is returned as a Response, not an error.
+func (c *Client) Post(ctx context.Context, rawURL string, form url.Values, header http.Header) (*Response, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return nil, err
+	}
+	h := http.Header{}
+	if header != nil {
+		h = header.Clone()
+	}
+	h.Set("Content-Type", "application/x-www-form-urlencoded")
+	return c.read(ctx, http.MethodPost, u, strings.NewReader(form.Encode()), h)
+}
+
+// read sends a request and reads and closes its body before the host slot is released.
+func (c *Client) read(ctx context.Context, method string, u *url.URL, body io.Reader, header http.Header) (*Response, error) {
+	stream, err := c.send(ctx, method, u, body, header)
 	if err != nil {
 		return nil, err
 	}
 	started := time.Now()
-	body, readErr := io.ReadAll(stream.Body)
+	data, readErr := io.ReadAll(stream.Body)
 	_ = stream.Body.Close()
 	if readErr != nil {
 		return nil, timeoutError(u.Host, "reading the response", started, readErr)
 	}
-	return &Response{StatusCode: stream.StatusCode, Header: stream.Header, Body: body}, nil
+	return &Response{StatusCode: stream.StatusCode, Header: stream.Header, Body: data}, nil
 }

@@ -13,7 +13,7 @@ import (
 var envNames = []string{
 	"BOOXD_MIRRORS", "BOOXD_DOWNLOAD_DIR", "BOOXD_CACHE_DIR", "BOOXD_PROXY",
 	"BOOXD_USER_AGENT", "BOOXD_REQUEST_TIMEOUT", "BOOXD_PER_HOST_INTERVAL",
-	"BOOXD_NO_UPDATE_CHECK",
+	"BOOXD_NO_UPDATE_CHECK", "BOOXD_ZLIBRARY_BASE_URL", "BOOXD_ZLIBRARY_SESSION_FILE",
 }
 
 func cleanEnv(t *testing.T) {
@@ -186,5 +186,29 @@ func TestEnvironmentErrorsNameField(t *testing.T) {
 	_, err = Load("", false, Defaults())
 	if err == nil || !strings.Contains(err.Error(), "BOOXD_NO_UPDATE_CHECK") {
 		t.Fatalf("boolean error missed field: %v", err)
+	}
+}
+
+func TestLoadZLibrary(t *testing.T) {
+	cleanEnv(t)
+	base := Config{DownloadDir: "/d", CacheDir: "/c", UserAgent: "ua", RequestTimeout: time.Second, PerHostInterval: time.Second}
+	c, err := Load("", false, base)
+	if err != nil || c.ZLibraryBaseURL != "" || c.ZLibrarySessionFile != "" {
+		t.Fatalf("zlibrary keys must have no default: %+v, %v", c, err)
+	}
+	path := writeConfig(t, "[zlibrary]\nbase_url = \"https://file.invalid\"\nsession_file = \"/file/session.txt\"\n")
+	c, err = Load(path, false, base)
+	if err != nil || c.ZLibraryBaseURL != "https://file.invalid" || c.ZLibrarySessionFile != "/file/session.txt" {
+		t.Fatalf("file keys not loaded: %+v, %v", c, err)
+	}
+	t.Setenv("BOOXD_ZLIBRARY_BASE_URL", "https://env.invalid")
+	t.Setenv("BOOXD_ZLIBRARY_SESSION_FILE", "/env/session.txt")
+	c, err = Load(path, false, base)
+	if err != nil || c.ZLibraryBaseURL != "https://env.invalid" || c.ZLibrarySessionFile != "/env/session.txt" {
+		t.Fatalf("environment did not override the file: %+v, %v", c, err)
+	}
+	_, err = Load(writeConfig(t, "[zlibrary]\npassword = \"x\"\n"), false, base)
+	if err == nil || !strings.Contains(err.Error(), "zlibrary.password") {
+		t.Fatalf("unknown zlibrary key error = %v", err)
 	}
 }

@@ -31,7 +31,7 @@ func TestPrintBooksMissingID(t *testing.T) {
 }
 
 func TestRun(t *testing.T) {
-	help := "usage: booxd search [flags] <query>\nflags must precede query arguments\n  -config string\n    \tconfig file path\n  -dump-html string\n    \twrite the fetched page to this path\n  -max-age duration\n    \tmaximum age of cached search results (default 24h0m0s)\n  -mirror string\n    \tbase URL; skip mirror discovery\n  -no-cache\n    \tskip cached search results\n  -page int\n    \tsearch result page (default 1)\n  -verbose\n    \tlog each fetch attempt to stderr\n"
+	help := "usage: booxd search [flags] <query>\nflags must precede query arguments\n  -config string\n    \tconfig file path\n  -dump-html string\n    \twrite the fetched page to this path\n  -max-age duration\n    \tmaximum age of cached search results (default 24h0m0s)\n  -mirror string\n    \tbase URL; skip mirror discovery\n  -no-cache\n    \tskip cached search results\n  -page int\n    \tsearch result page (default 1)\n  -source string\n    \tbook source: anna or zlibrary (default \"anna\")\n  -verbose\n    \tlog each fetch attempt to stderr\n"
 	for _, tt := range []struct {
 		name                          string
 		args                          []string
@@ -56,9 +56,9 @@ func TestRun(t *testing.T) {
 		{name: "unknown flag", args: []string{"search", "--nope"}, code: 2, err: "flag provided but not defined: -nope\n" + help},
 		{name: "missing flag", args: []string{"search", "--mirror"}, code: 2, err: "flag needs an argument: -mirror\n" + help},
 		{name: "help", args: []string{"search", "-h"}, code: 2, err: help},
-		{name: "tui help", args: []string{"tui", "-h"}, code: 2, err: "usage: booxd tui [flags]\n  -mono\n    \tdisable colour\n"},
-		{name: "tui unknown flag", args: []string{"tui", "--bogus"}, code: 2, err: "flag provided but not defined: -bogus\nusage: booxd tui [flags]\n  -mono\n    \tdisable colour\n"},
-		{name: "get", args: []string{"get"}, code: 2, err: "usage: booxd get [flags] <id>\nflags must precede the id\n  -config string\n    \tconfig file path\n  -cookies string\n    \tNetscape cookie file; required for a download\n  -mirror string\n    \tbase URL; skip mirror discovery\n  -open\n    \topen the saved file with termux-open\n  -verbose\n    \tlog each fetch attempt to stderr\n"},
+		{name: "tui help", args: []string{"tui", "-h"}, code: 2, err: "usage: booxd tui [flags]\n  -mono\n    \tdisable colour\n  -source string\n    \tbook source: anna or zlibrary (default \"anna\")\n"},
+		{name: "tui unknown flag", args: []string{"tui", "--bogus"}, code: 2, err: "flag provided but not defined: -bogus\nusage: booxd tui [flags]\n  -mono\n    \tdisable colour\n  -source string\n    \tbook source: anna or zlibrary (default \"anna\")\n"},
+		{name: "get", args: []string{"get"}, code: 2, err: "usage: booxd get [flags] <id>\nflags must precede the id\n  -config string\n    \tconfig file path\n  -cookies string\n    \tNetscape cookie file; required for a download\n  -mirror string\n    \tbase URL; skip mirror discovery\n  -open\n    \topen the saved file with termux-open\n  -source string\n    \tbook source: anna or zlibrary (default \"anna\")\n  -verbose\n    \tlog each fetch attempt to stderr\n"},
 		{name: "serve", args: []string{"serve"}, code: 1, out: "booxd: serve is not implemented yet\n"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

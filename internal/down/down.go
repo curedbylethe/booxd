@@ -1,6 +1,7 @@
 package down
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -19,6 +20,24 @@ import (
 
 // ErrExists indicates the destination file already exists.
 var ErrExists = errors.New("down: destination already exists")
+
+// ErrInsecureRedirect indicates a redirect from https to plain http.
+var ErrInsecureRedirect = errors.New("down: redirect leaves https")
+
+// ErrNotBook indicates the server sent a web page or an empty body instead of a file.
+var ErrNotBook = errors.New("down: server sent a web page or an empty body, not a book")
+
+// StatusError reports a transfer response outside 2xx and 3xx. Its message names no URL.
+type StatusError struct {
+	Code int
+}
+
+func (e *StatusError) Error() string {
+	if e.Code == http.StatusUnauthorized || e.Code == http.StatusForbidden || e.Code == http.StatusProxyAuthRequired {
+		return fmt.Sprintf("download refused: %s", http.StatusText(e.Code))
+	}
+	return fmt.Sprintf("download failed: status %d", e.Code)
+}
 
 // Request describes one download.
 type Request struct {
@@ -73,10 +92,18 @@ func Download(ctx context.Context, client *fetch.Client, req Request) (string, e
 			_ = stream.Body.Close()
 			return "", err
 		}
+		meta := part + ".meta"
+		validator := validatorOf(stream.Header)
+		// A partial resumes only against the validator and total it was written
+		// with; otherwise the discovery response restarts the file from zero.
+		if have > 0 && !resumable(meta, validator, stream.Header.Get("Content-Length")) {
+			have = 0
+		}
 		if have > 0 {
 			_ = stream.Body.Close()
 			header := make(http.Header)
 			header.Set("Range", fmt.Sprintf("bytes=%d-", have))
+			header.Set("If-Range", validator)
 			stream, finalURL, err = openRedirected(ctx, client, finalURL, header)
 			if err != nil {
 				return "", err
@@ -98,6 +125,16 @@ func Download(ctx context.Context, client *fetch.Client, req Request) (string, e
 		if stream.StatusCode != http.StatusOK && stream.StatusCode != http.StatusPartialContent && stream.StatusCode != http.StatusRequestedRangeNotSatisfiable {
 			_ = stream.Body.Close()
 			return "", responseError(stream.StatusCode)
+		}
+		var body io.Reader = stream.Body
+		if stream.StatusCode != http.StatusRequestedRangeNotSatisfiable {
+			buffered := bufio.NewReader(stream.Body)
+			if isHTML(stream.Header.Get("Content-Type"), buffered, stream.StatusCode == http.StatusOK) {
+				_ = stream.Body.Close()
+				removePart(part)
+				return "", ErrNotBook
+			}
+			body = buffered
 		}
 		file, err := os.OpenFile(part, os.O_CREATE|os.O_WRONLY, 0o644)
 		if err != nil {
@@ -175,6 +212,13 @@ func Download(ctx context.Context, client *fetch.Client, req Request) (string, e
 				return "", fmt.Errorf("invalid Content-Length %q", expected)
 			}
 		}
+		if stream.StatusCode == http.StatusOK {
+			if err := os.WriteFile(meta, []byte(validatorOf(stream.Header)+"\n"+expected+"\n"), 0o644); err != nil {
+				_ = file.Close()
+				_ = stream.Body.Close()
+				return "", err
+			}
+		}
 		total := int64(-1)
 		if length >= 0 {
 			total = length + have
@@ -183,7 +227,7 @@ func Download(ctx context.Context, client *fetch.Client, req Request) (string, e
 			}
 		}
 		progress := newProgress(req.Progress, total, have)
-		written, copyErr := io.CopyBuffer(progressWriter{file: file, progress: progress}, stream.Body, make([]byte, 32*1024))
+		written, copyErr := io.CopyBuffer(progressWriter{file: file, progress: progress}, body, make([]byte, 32*1024))
 		_ = stream.Body.Close()
 		if copyErr != nil {
 			truncated := length >= 0 && written < length && errors.Is(copyErr, io.ErrUnexpectedEOF)
@@ -198,6 +242,11 @@ func Download(ctx context.Context, client *fetch.Client, req Request) (string, e
 				return "", fmt.Errorf("truncated download: wrote %d of %d bytes; partial kept at %s", written, length, part)
 			}
 			return "", fmt.Errorf("download size mismatch: wrote %d bytes; expected %d", written, length)
+		}
+		if written == 0 {
+			_ = file.Close()
+			removePart(part)
+			return "", ErrNotBook
 		}
 		if stream.StatusCode == http.StatusPartialContent && rangeTotalKnown && have+written != rangeTotal {
 			_ = file.Truncate(0)
@@ -220,10 +269,44 @@ func Download(ctx context.Context, client *fetch.Client, req Request) (string, e
 }
 
 func responseError(status int) error {
-	if status == http.StatusUnauthorized || status == http.StatusForbidden || status == http.StatusProxyAuthRequired {
-		return fmt.Errorf("download refused: %s", http.StatusText(status))
+	return &StatusError{Code: status}
+}
+
+// isHTML reports a web page by media type, or by sniffing when body starts the file.
+func isHTML(contentType string, body *bufio.Reader, sniff bool) bool {
+	if media, _, err := mime.ParseMediaType(contentType); err == nil && (media == "text/html" || media == "application/xhtml+xml") {
+		return true
 	}
-	return fmt.Errorf("download failed: status %d", status)
+	if !sniff {
+		return false
+	}
+	// A short or failed read leaves its error in body for the copy to report.
+	head, _ := body.Peek(512)
+	return strings.HasPrefix(http.DetectContentType(head), "text/html")
+}
+
+// validatorOf returns the strong ETag, else Last-Modified, for If-Range.
+func validatorOf(header http.Header) string {
+	if etag := header.Get("ETag"); etag != "" && !strings.HasPrefix(etag, "W/") {
+		return etag
+	}
+	return header.Get("Last-Modified")
+}
+
+// resumable reports whether the sidecar at meta matches validator and the
+// Content-Length length of the current full response.
+func resumable(meta, validator, length string) bool {
+	data, err := os.ReadFile(meta)
+	if err != nil {
+		return false
+	}
+	stored, total, _ := strings.Cut(strings.TrimSuffix(string(data), "\n"), "\n")
+	return stored != "" && stored == validator && (total == "" || length == "" || total == length)
+}
+
+func removePart(part string) {
+	_ = os.Remove(part)
+	_ = os.Remove(part + ".meta")
 }
 
 func openRedirected(ctx context.Context, client *fetch.Client, current *url.URL, header http.Header) (*fetch.Stream, *url.URL, error) {
@@ -243,14 +326,22 @@ func openRedirected(ctx context.Context, client *fetch.Client, current *url.URL,
 		if redirects == maxRedirects {
 			return nil, nil, fmt.Errorf("download exceeded %d redirects", maxRedirects)
 		}
+		// Redirect errors name only scheme or host: the Location may carry a signed query.
 		reference, err := url.Parse(location)
 		if err != nil {
-			return nil, nil, fmt.Errorf("invalid redirect URL: %w", err)
+			return nil, nil, errors.New("invalid redirect URL")
 		}
-		current = current.ResolveReference(reference)
-		if _, err := httpURL(current.String()); err != nil {
-			return nil, nil, fmt.Errorf("invalid redirect URL: %w", err)
+		next := current.ResolveReference(reference)
+		if next.Scheme != "http" && next.Scheme != "https" {
+			return nil, nil, fmt.Errorf("redirect to unsupported scheme %q", next.Scheme)
 		}
+		if next.Host == "" {
+			return nil, nil, errors.New("invalid redirect URL")
+		}
+		if current.Scheme == "https" && next.Scheme != "https" {
+			return nil, nil, fmt.Errorf("%w: %s", ErrInsecureRedirect, next.Host)
+		}
+		current = next
 	}
 }
 
@@ -342,6 +433,7 @@ func renamePart(part, final string) error {
 	if err := os.Rename(part, final); err != nil {
 		return fmt.Errorf("rename partial download: %w", err)
 	}
+	_ = os.Remove(part + ".meta")
 	return nil
 }
 

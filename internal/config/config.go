@@ -27,6 +27,10 @@ type Config struct {
 	RequestTimeout  time.Duration
 	PerHostInterval time.Duration
 	NoUpdateCheck   bool
+	// ZLibraryBaseURL and ZLibrarySessionFile have no default; the command
+	// that selects zlibrary validates them.
+	ZLibraryBaseURL     string
+	ZLibrarySessionFile string
 }
 
 // Defaults returns compiled-in settings. Mirror seeds are supplied by the caller.
@@ -59,6 +63,10 @@ type fileConfig struct {
 	RequestTimeout  any       `toml:"request_timeout"`
 	PerHostInterval any       `toml:"per_host_interval"`
 	NoUpdateCheck   *bool     `toml:"no_update_check"`
+	ZLibrary        struct {
+		BaseURL     *string `toml:"base_url"`
+		SessionFile *string `toml:"session_file"`
+	} `toml:"zlibrary"`
 }
 
 // Load merges base settings, an optional TOML file, then BOOXD_* variables.
@@ -143,6 +151,12 @@ func applyFile(c Config, f fileConfig) (Config, error) {
 	if f.NoUpdateCheck != nil {
 		c.NoUpdateCheck = *f.NoUpdateCheck
 	}
+	if f.ZLibrary.BaseURL != nil {
+		c.ZLibraryBaseURL = *f.ZLibrary.BaseURL
+	}
+	if f.ZLibrary.SessionFile != nil {
+		c.ZLibrarySessionFile = *f.ZLibrary.SessionFile
+	}
 	return c, nil
 }
 
@@ -166,6 +180,7 @@ func applyEnvironment(c Config) (Config, error) {
 		target *string
 	}{
 		{"BOOXD_DOWNLOAD_DIR", &c.DownloadDir}, {"BOOXD_CACHE_DIR", &c.CacheDir}, {"BOOXD_USER_AGENT", &c.UserAgent},
+		{"BOOXD_ZLIBRARY_BASE_URL", &c.ZLibraryBaseURL}, {"BOOXD_ZLIBRARY_SESSION_FILE", &c.ZLibrarySessionFile},
 	} {
 		if value, ok := os.LookupEnv(item.name); ok && value != "" {
 			*item.target = value

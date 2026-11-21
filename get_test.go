@@ -219,6 +219,28 @@ func TestGetForbiddenStopsAtFirstOption(t *testing.T) {
 	}
 }
 
+func TestGetRefusesWebPage(t *testing.T) {
+	srv := newGetServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/books/42" {
+			_, _ = io.WriteString(w, openBookPage(`<a href="/download/file">Download</a>`))
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(w, "<!DOCTYPE html><html><body>Please sign in</body></html>")
+	})
+	cookiePath := writeCookieFile(t, srv.URL)
+	dir := t.TempDir()
+	withGetEnvironment(t, dir)
+	var stdout, stderr bytes.Buffer
+	code := runGetOnServer(t, srv, []string{"get", "--cookies", cookiePath, "42"}, &stdout, &stderr)
+	if code != 1 || stdout.Len() != 0 || !strings.HasSuffix(stderr.String(), "booxd: down: server sent a web page or an empty body, not a book\n") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {
+		t.Fatalf("download dir entries=%v err=%v, want empty", entries, err)
+	}
+}
+
 func TestGetExistingFile(t *testing.T) {
 	var requests atomic.Int32
 	srv := newGetServer(t, func(w http.ResponseWriter, r *http.Request) {
@@ -396,8 +418,8 @@ func TestGetRefusesUnavailableSource(t *testing.T) {
 		t.Fatal("client created for an unavailable source")
 		return nil
 	}
-	code := run([]string{"get", "zlibrary:1234/ab12cd"}, &stdout, &stderr, resolve, newClient)
-	if code != 2 || stderr.String() != "booxd: zlibrary books are not available yet\n" {
+	code := run([]string{"get", "irc:16d6770d2ba9"}, &stdout, &stderr, resolve, newClient)
+	if code != 2 || stderr.String() != "booxd: irc books are not available yet\n" {
 		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
 }
