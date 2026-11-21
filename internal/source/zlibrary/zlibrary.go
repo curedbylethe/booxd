@@ -6,10 +6,12 @@ package zlibrary
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"html"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -27,6 +29,7 @@ var (
 	ErrSessionExpired = errors.New("zlibrary: session rejected")
 	ErrQuota          = errors.New("zlibrary: download quota exhausted")
 	ErrChallenged     = errors.New("zlibrary: host is challenging automated requests")
+	ErrUnavailable    = errors.New("zlibrary: host did not answer")
 )
 
 // ErrMalformed reports a response that is not the expected JSON. It names the
@@ -103,7 +106,7 @@ func load[T any](s *Searcher, key, subject string, page int, send func() (*fetch
 	if err == nil {
 		v, err = decodeAs(resp)
 	} else {
-		err = challenged(err)
+		err = classify(err, s.base.Host)
 	}
 	if err != nil {
 		if hit {
@@ -120,11 +123,24 @@ func load[T any](s *Searcher, key, subject string, page int, send func() (*fetch
 	return v, nil
 }
 
-// challenged turns fetch's error for a wall status into ErrChallenged.
-func challenged(err error) error {
+// classify turns fetch's error for a wall status into ErrChallenged, and a
+// timeout or network failure into ErrUnavailable naming only host: the
+// underlying error quotes the request URL. Cancellation and an interrupted
+// rate-limit wait pass through.
+func classify(err error, host string) error {
 	var status *fetch.StatusError
 	if errors.As(err, &status) && (status.Code == 513 || status.Code == 517) {
 		return fmt.Errorf("%w (status %d)", ErrChallenged, status.Code)
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, fetch.ErrRateLimited) {
+		return err
+	}
+	var netErr net.Error
+	var opErr *net.OpError
+	var urlErr *url.Error
+	if errors.Is(err, context.DeadlineExceeded) || errors.As(err, &netErr) && netErr.Timeout() ||
+		errors.As(err, &opErr) || errors.As(err, &urlErr) {
+		return fmt.Errorf("%w: %s", ErrUnavailable, host)
 	}
 	return err
 }

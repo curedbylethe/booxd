@@ -10,6 +10,7 @@ type Book struct {
 	Size      string
 	Publisher string
 	Language  string
+	ISBN      string
 }
 
 // Detail is one book's record in a provider-neutral form, for display.

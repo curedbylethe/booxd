@@ -32,7 +32,7 @@ func (s *Searcher) ResolveDownload(ctx context.Context, ref source.Ref) (url.URL
 	// Open, unlike Get, never consults a cache lookup.
 	stream, err := s.client.Open(ctx, u+"/file", nil)
 	if err != nil {
-		return url.URL{}, challenged(err)
+		return url.URL{}, classify(err, s.base.Host)
 	}
 	body, err := io.ReadAll(stream.Body)
 	_ = stream.Body.Close()

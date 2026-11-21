@@ -26,6 +26,7 @@ type searchResponse struct {
 		Language  text `json:"language"`
 		Extension text `json:"extension"`
 		Size      text `json:"filesizeString"`
+		ISBN      text `json:"isbn"`
 	} `json:"books"`
 }
 
@@ -71,6 +72,7 @@ func decodeSearch(resp *fetch.Response) ([]source.Book, error) {
 			Size:      string(b.Size),
 			Publisher: string(b.Publisher),
 			Language:  string(b.Language),
+			ISBN:      string(b.ISBN),
 		})
 	}
 	return books, nil
