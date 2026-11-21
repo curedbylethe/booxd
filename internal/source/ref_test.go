@@ -14,6 +14,7 @@ func TestParse(t *testing.T) {
 		{in: "anna:36451", want: Ref{Anna, "36451", ""}, str: "36451"},
 		{in: "zlibrary:1234/ab12cd", want: Ref{ZLibrary, "1234", "ab12cd"}, str: "zlibrary:1234/ab12cd"},
 		{in: "irc:16d6770d2ba9", want: Ref{IRC, "16d6770d2ba9", ""}, str: "irc:16d6770d2ba9"},
+		{in: "irc:abc-def", want: Ref{IRC, "abc-def", ""}, str: "irc:abc-def"},
 		{in: "irc:16d6770d2ba9/ff", want: Ref{IRC, "16d6770d2ba9", "ff"}, str: "irc:16d6770d2ba9/ff"},
 		{in: "zlibrary:1234", wantErr: "source: zlibrary reference needs a hash"},
 		{in: "anna:1234/abc", wantErr: "source: anna reference takes no hash"},
@@ -51,6 +52,12 @@ func TestParse(t *testing.T) {
 				t.Errorf("Validate() = %v", err)
 			}
 		})
+	}
+}
+
+func TestZeroRefPrintsEmpty(t *testing.T) {
+	if got := (Ref{}).String(); got != "" {
+		t.Fatalf("zero Ref String() = %q, want empty", got)
 	}
 }
 

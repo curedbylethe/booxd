@@ -16,10 +16,19 @@ import (
 	"github.com/curedbylethe/booxd/internal/cache"
 	"github.com/curedbylethe/booxd/internal/config"
 	"github.com/curedbylethe/booxd/internal/fetch"
+	"github.com/curedbylethe/booxd/internal/parse"
 	"github.com/curedbylethe/booxd/internal/source"
 )
 
 const card = `<div class="bg-white rounded-lg shadow p-4 mb-4"><h3><a href="/books/36451-test">Test</a></h3><div class="text-sm text-[#666] mt-1">Unknown author · 2022 · PDF · 51.0 MB · Books catalog</div></div>`
+
+func TestPrintBooksMissingID(t *testing.T) {
+	var out bytes.Buffer
+	printBooks(&out, []parse.Book{{Title: "T"}})
+	if want := "\tT\t\t\t\t\n"; out.String() != want {
+		t.Fatalf("printBooks() = %q, want %q", out.String(), want)
+	}
+}
 
 func TestRun(t *testing.T) {
 	help := "usage: booxd search [flags] <query>\nflags must precede query arguments\n  -config string\n    \tconfig file path\n  -dump-html string\n    \twrite the fetched page to this path\n  -max-age duration\n    \tmaximum age of cached search results (default 24h0m0s)\n  -mirror string\n    \tbase URL; skip mirror discovery\n  -no-cache\n    \tskip cached search results\n  -page int\n    \tsearch result page (default 1)\n  -verbose\n    \tlog each fetch attempt to stderr\n"
