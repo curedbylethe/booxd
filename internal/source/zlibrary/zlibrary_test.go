@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -112,6 +113,121 @@ func TestSearchFormAndRefs(t *testing.T) {
 		if again, err := source.Parse(books[i].Ref.String()); err != nil || again != want[i].Ref {
 			t.Errorf("round trip %d = %+v, %v", i, again, err)
 		}
+	}
+}
+
+func TestSearchFilterFields(t *testing.T) {
+	var form url.Values
+	s, _ := serve(t, false, func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		form = r.PostForm
+		_, _ = w.Write(fixture(t, "search.json"))
+	})
+	opts := source.SearchOptions{Page: 2, Languages: []string{"english", "persian"}, Formats: []string{"EPUB"}}
+	if _, err := s.Search(context.Background(), "left hand", opts); err != nil {
+		t.Fatal(err)
+	}
+	if got := form["languages[]"]; !slices.Equal(got, []string{"english", "persian"}) {
+		t.Errorf("languages[] = %v", got)
+	}
+	if got := form["extensions[]"]; !slices.Equal(got, []string{"EPUB"}) {
+		t.Errorf("extensions[] = %v", got)
+	}
+	if form.Get("message") != "left hand" || form.Get("page") != "2" || form.Get("limit") != "25" {
+		t.Errorf("form = %v", form)
+	}
+	if len(form) != 5 {
+		t.Errorf("form has %d fields, want 5: %v", len(form), form)
+	}
+}
+
+func TestSearchFilterAliases(t *testing.T) {
+	langs, err := NormaliseLanguages([]string{"EN", "english", "fa"})
+	if err != nil || !slices.Equal(langs, []string{"english", "persian"}) {
+		t.Fatalf("NormaliseLanguages = %v, %v", langs, err)
+	}
+	formats, err := NormaliseFormats([]string{"epub", "PDF"})
+	if err != nil || !slices.Equal(formats, []string{"EPUB", "PDF"}) {
+		t.Fatalf("NormaliseFormats = %v, %v", formats, err)
+	}
+	if _, err := NormaliseLanguages([]string{"klingon"}); err == nil || err.Error() != `unknown language "klingon"` {
+		t.Errorf("NormaliseLanguages(klingon) = %v", err)
+	}
+	if _, err := NormaliseFormats([]string{"tar"}); err == nil || err.Error() != `unknown format "tar"` {
+		t.Errorf("NormaliseFormats(tar) = %v", err)
+	}
+	for raw, want := range map[string]string{
+		"ms": "malaysian", "km": "central_khmer", "my": "burmese", "zh": "chinese",
+		"malaysian": "malaysian", "central_khmer": "central_khmer", "burmese": "burmese",
+	} {
+		got, err := NormaliseLanguages([]string{" " + strings.ToUpper(raw) + " "})
+		if err != nil || !slices.Equal(got, []string{want}) {
+			t.Errorf("NormaliseLanguages(%q) = %v, %v; want [%s]", raw, got, err, want)
+		}
+	}
+	if _, err := NormaliseLanguages([]string{"traditional chinese"}); err == nil {
+		t.Error("NormaliseLanguages(traditional chinese) = nil error")
+	}
+	if got, err := NormaliseLanguages(nil); err != nil || len(got) != 0 {
+		t.Errorf("NormaliseLanguages(nil) = %v, %v", got, err)
+	}
+	if got, err := NormaliseFormats(nil); err != nil || len(got) != 0 {
+		t.Errorf("NormaliseFormats(nil) = %v, %v", got, err)
+	}
+}
+
+func TestCacheFilterIdentity(t *testing.T) {
+	s, calls := serve(t, false, reply(200, fixture(t, "search.json")))
+	dir := t.TempDir()
+	s.Store = cache.Open(dir)
+	ctx := context.Background()
+	english := source.SearchOptions{Page: 1, Languages: []string{"english"}}
+	persian := source.SearchOptions{Page: 1, Languages: []string{"persian"}}
+	for _, opts := range []source.SearchOptions{english, persian} {
+		if _, err := s.Search(ctx, "kindred", opts); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls.Load() != 2 || cacheFiles(t, dir) != 2 {
+		t.Fatalf("distinct filters: calls = %d, files = %d; want 2 and 2", calls.Load(), cacheFiles(t, dir))
+	}
+	for range 2 {
+		if _, err := s.Search(ctx, "kindred", english); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls.Load() != 2 || cacheFiles(t, dir) != 2 {
+		t.Fatalf("repeat filter: calls = %d, files = %d; want 2 and 2", calls.Load(), cacheFiles(t, dir))
+	}
+	for _, opts := range []source.SearchOptions{english, persian} {
+		if _, ok := s.Store.Get(cache.SearchKey(source.ZLibrary, "kindred", opts)); !ok {
+			t.Errorf("filter %v not cached under its own key", opts.Languages)
+		}
+	}
+	sess, sessCalls := serve(t, true, reply(200, fixture(t, "search.json")))
+	sess.Store = cache.Open(t.TempDir())
+	for range 2 {
+		if _, err := sess.Search(ctx, "kindred", english); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if sessCalls.Load() != 2 {
+		t.Fatalf("session calls = %d, want 2", sessCalls.Load())
+	}
+}
+
+func TestCacheSkipsEmptyFilteredSearch(t *testing.T) {
+	s, calls := serve(t, false, reply(200, fixture(t, "search-empty.json")))
+	dir := t.TempDir()
+	s.Store = cache.Open(dir)
+	opts := source.SearchOptions{Page: 1, Languages: []string{"english"}, Formats: []string{"EPUB"}}
+	for range 2 {
+		if books, err := s.Search(context.Background(), "nothing", opts); err != nil || len(books) != 0 {
+			t.Fatalf("Search = %v, %v", books, err)
+		}
+	}
+	if calls.Load() != 2 || cacheFiles(t, dir) != 0 {
+		t.Fatalf("calls = %d, cache files = %d; want 2 live calls and no writes", calls.Load(), cacheFiles(t, dir))
 	}
 }
 

@@ -34,10 +34,24 @@ type searchResponse struct {
 // books is an empty result. When a live request fails and a stale cached page
 // exists, Search returns that page together with the error.
 func (s *Searcher) Search(ctx context.Context, query string, opts source.SearchOptions) ([]source.Book, error) {
+	languages, err := NormaliseLanguages(opts.Languages)
+	if err != nil {
+		return nil, err
+	}
+	formats, err := NormaliseFormats(opts.Formats)
+	if err != nil {
+		return nil, err
+	}
 	if opts.Page < 1 {
 		opts.Page = 1
 	}
 	form := url.Values{"message": {query}, "page": {strconv.Itoa(opts.Page)}, "limit": {strconv.Itoa(pageSize)}}
+	for _, v := range languages {
+		form.Add("languages[]", v)
+	}
+	for _, v := range formats {
+		form.Add("extensions[]", v)
+	}
 	send := func() (*fetch.Response, error) {
 		return s.client.Post(ctx, s.base.JoinPath("eapi", "book", "search").String(), form, nil)
 	}
