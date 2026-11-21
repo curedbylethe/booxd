@@ -184,6 +184,43 @@ func TestPostSharesHostSpacingWithGet(t *testing.T) {
 	}
 }
 
+func TestPostCancelReleasesHostSlot(t *testing.T) {
+	var calls atomic.Int32
+	unblock := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			select {
+			case <-r.Context().Done():
+			case <-unblock:
+			}
+		}
+	}))
+	defer server.Close()
+	defer close(unblock)
+	client := New(WithInterval(0))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	time.AfterFunc(50*time.Millisecond, cancel)
+	started := time.Now()
+	_, err := client.Post(ctx, server.URL, url.Values{"q": {"x"}}, nil)
+	if !errors.Is(err, context.Canceled) || time.Since(started) > 2*time.Second {
+		t.Fatalf("error = %v after %s, want context.Canceled promptly", err, time.Since(started))
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := client.Get(context.Background(), server.URL)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != nil || calls.Load() != 2 {
+			t.Fatalf("follow-up error = %v, calls = %d", err, calls.Load())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("host slot still held after cancelled Post")
+	}
+}
+
 func TestExhaustedServerErrorIsStatusError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(513)
