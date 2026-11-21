@@ -58,7 +58,7 @@ func (s *Searcher) Detail(ctx context.Context, ref source.Ref) (source.Detail, e
 			Size:        display(string(size)),
 			ISBN:        display(string(b.ISBN)),
 			Pages:       display(string(b.Pages)),
-			Description: display(string(b.Description)),
+			Description: paragraphs(string(b.Description)),
 			HasDownload: b.Download != "",
 		}, nil
 	}

@@ -155,7 +155,7 @@ func TestDetailPathAndFields(t *testing.T) {
 	want := source.Detail{
 		Ref: leGuin, Title: "The Left Hand of Darkness", Author: "Ursula K. Le Guin", Publisher: "Ace Books",
 		Year: "1969", Language: "english", Format: "epub", Size: "1.20 MB", ISBN: "9780441478125", Pages: "304",
-		Description: "<p>A lone envoy visits Gethen.</p><p>Winter &amp; ice.</p>", HasDownload: true,
+		Description: "A lone envoy visits Gethen.\n\nWinter & ice.", HasDownload: true,
 	}
 	if got != want {
 		t.Fatalf("Detail = %+v\nwant %+v", got, want)
@@ -475,5 +475,12 @@ func TestCancelStaysCanceled(t *testing.T) {
 	_, err := s.Search(ctx, "x", 1)
 	if !errors.Is(err, context.Canceled) || errors.Is(err, ErrUnavailable) {
 		t.Fatalf("Search = %v, want context.Canceled", err)
+	}
+}
+
+func TestParagraphs(t *testing.T) {
+	in := "<p>One <b>bold</b>\nline &amp; more.</p>\n<p>Two.<br/>Three\x1b<BR></p>"
+	if got, want := paragraphs(in), "One bold line & more.\n\nTwo.\n\nThree"; got != want {
+		t.Fatalf("paragraphs = %q, want %q", got, want)
 	}
 }
