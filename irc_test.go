@@ -6,6 +6,9 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,9 +23,13 @@ const (
 )
 
 type fakeIRCSearcher struct {
-	books []sourceirc.Book
-	err   error
-	calls int
+	books      []sourceirc.Book
+	err        error
+	fetch      func(context.Context, sourceirc.Book, string) (int64, error)
+	calls      int
+	fetchCalls int
+	fetched    sourceirc.Book
+	dstPath    string
 }
 
 func (f *fakeIRCSearcher) Search(context.Context, string) ([]sourceirc.Book, error) {
@@ -30,7 +37,12 @@ func (f *fakeIRCSearcher) Search(context.Context, string) ([]sourceirc.Book, err
 	return f.books, f.err
 }
 
-func (f *fakeIRCSearcher) Fetch(context.Context, sourceirc.Book, string) (int64, error) {
+func (f *fakeIRCSearcher) Fetch(ctx context.Context, book sourceirc.Book, dstPath string) (int64, error) {
+	f.fetchCalls++
+	f.fetched, f.dstPath = book, dstPath
+	if f.fetch != nil {
+		return f.fetch(ctx, book, dstPath)
+	}
 	return 0, errors.New("unexpected Fetch")
 }
 
@@ -54,15 +66,17 @@ func stubIRCSearcher(t *testing.T, s ircSearcher, cleanup func() error, dialErr 
 	return h
 }
 
-func ircEnvironment(t *testing.T) {
+func ircEnvironment(t *testing.T) string {
 	t.Helper()
-	withGetEnvironment(t, t.TempDir())
+	dir := t.TempDir()
+	withGetEnvironment(t, dir)
 	for _, key := range []string{
 		"BOOXD_IRC_SERVER", "BOOXD_IRC_NICK", "BOOXD_IRC_CHANNEL",
 		"BOOXD_IRC_SEARCH_TIMEOUT", "BOOXD_IRC_DOWNLOAD_TIMEOUT", "BOOXD_IRC_DEBUG",
 	} {
 		t.Setenv(key, "")
 	}
+	return dir
 }
 
 func countingSeams() (resolveFunc, clientFunc, *int, *int) {
@@ -195,5 +209,211 @@ func TestSearchIRCDoesNotTouchHTTP(t *testing.T) {
 	}
 	if *resolves != 0 || *clients != 0 {
 		t.Fatalf("resolver=%d client=%d; want 0 0", *resolves, *clients)
+	}
+}
+
+func ircRef() string { return ircTestBook().Ref().String() }
+
+const ircRequesting = "irc: requesting The Last Hero.pdf from artemis_serv\n"
+
+func TestGetIRC(t *testing.T) {
+	dir := ircEnvironment(t)
+	wantPath := filepath.Join(dir, "The Last Hero.pdf")
+	cleaned := 0
+	f := &fakeIRCSearcher{fetch: func(_ context.Context, book sourceirc.Book, dst string) (int64, error) {
+		if book.Ref() != ircTestBook().Ref() || book.Name != "The Last Hero" || book.Format != "pdf" || dst != wantPath {
+			t.Errorf("Fetch(book=%+v, dst=%q); want ref %q, name %q, format %q, dst %q", book, dst, ircTestBook().Ref().String(), "The Last Hero", "pdf", wantPath)
+		}
+		if err := os.WriteFile(dst, []byte("book"), 0o644); err != nil {
+			return 0, err
+		}
+		return 4, nil
+	}}
+	h := stubIRCSearcher(t, f, func() error { cleaned++; return nil }, nil)
+	resolve, newClient, resolves, clients := countingSeams()
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"get", ircRef()}, &stdout, &stderr, resolve, newClient)
+	if code != 0 || stdout.String() != "saved "+wantPath+"\n" || stderr.String() != ircRequesting {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if h.calls != 1 || f.fetchCalls != 1 || cleaned != 1 {
+		t.Fatalf("dial=%d fetch=%d cleanup=%d; want 1 1 1", h.calls, f.fetchCalls, cleaned)
+	}
+	if *resolves != 0 || *clients != 0 {
+		t.Fatalf("resolver=%d client=%d; want 0 0", *resolves, *clients)
+	}
+	if body, err := os.ReadFile(wantPath); err != nil || string(body) != "book" {
+		t.Fatalf("saved body=%q err=%v", body, err)
+	}
+	if _, err := os.Stat(wantPath + ".part"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("leftover .part: %v", err)
+	}
+}
+
+func TestGetIRCAlreadyPresent(t *testing.T) {
+	dir := ircEnvironment(t)
+	wantPath := filepath.Join(dir, "The Last Hero.pdf")
+	if err := os.WriteFile(wantPath, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeIRCSearcher{}
+	h := stubIRCSearcher(t, f, func() error { return nil }, nil)
+	resolve, newClient, resolves, clients := countingSeams()
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"get", ircRef()}, &stdout, &stderr, resolve, newClient)
+	if code != 0 || stdout.String() != "already downloaded: "+wantPath+"\n" || stderr.Len() != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if h.calls != 0 || f.fetchCalls != 0 || *resolves != 0 || *clients != 0 {
+		t.Fatalf("dial=%d fetch=%d resolver=%d client=%d; want all 0", h.calls, f.fetchCalls, *resolves, *clients)
+	}
+	if body, err := os.ReadFile(wantPath); err != nil || string(body) != "old" {
+		t.Fatalf("existing body=%q err=%v", body, err)
+	}
+}
+
+func TestGetIRCError(t *testing.T) {
+	dir := ircEnvironment(t)
+	part := filepath.Join(dir, "The Last Hero.pdf.part")
+	message := `source irc: fetch "x": wrote 1 of 2 bytes; partial kept at p`
+	f := &fakeIRCSearcher{fetch: func(_ context.Context, _ sourceirc.Book, dst string) (int64, error) {
+		if err := os.WriteFile(dst+".part", []byte("x"), 0o644); err != nil {
+			return 0, err
+		}
+		return 1, errors.New(message)
+	}}
+	h := stubIRCSearcher(t, f, func() error { return nil }, nil)
+	resolve, newClient, resolves, clients := countingSeams()
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"get", ircRef()}, &stdout, &stderr, resolve, newClient)
+	if code != 1 || stdout.Len() != 0 || stderr.String() != ircRequesting+"booxd: "+message+"\n" {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if h.calls != 1 || f.fetchCalls != 1 || *resolves != 0 || *clients != 0 {
+		t.Fatalf("dial=%d fetch=%d resolver=%d client=%d", h.calls, f.fetchCalls, *resolves, *clients)
+	}
+	if _, err := os.Stat(part); err != nil {
+		t.Fatalf("partial was removed: %v", err)
+	}
+}
+
+func TestGetIRCCancel(t *testing.T) {
+	ircEnvironment(t)
+	t.Setenv("BOOXD_IRC_DOWNLOAD_TIMEOUT", "1ms")
+	cleaned := 0
+	f := &fakeIRCSearcher{fetch: func(ctx context.Context, _ sourceirc.Book, _ string) (int64, error) {
+		<-ctx.Done()
+		return 0, ctx.Err()
+	}}
+	stubIRCSearcher(t, f, func() error { cleaned++; return nil }, nil)
+	resolve, newClient, resolves, clients := countingSeams()
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"get", ircRef()}, &stdout, &stderr, resolve, newClient)
+	if code != 1 || stdout.Len() != 0 || stderr.String() != ircRequesting+"booxd: context deadline exceeded\n" {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if f.fetchCalls != 1 || cleaned != 1 || *resolves != 0 || *clients != 0 {
+		t.Fatalf("fetch=%d cleanup=%d resolver=%d client=%d", f.fetchCalls, cleaned, *resolves, *clients)
+	}
+}
+
+func TestGetIRCRestart(t *testing.T) {
+	dir := ircEnvironment(t)
+	wantPath := filepath.Join(dir, "The Last Hero.pdf")
+	part := wantPath + ".part"
+	f := &fakeIRCSearcher{}
+	f.fetch = func(ctx context.Context, _ sourceirc.Book, dst string) (int64, error) {
+		if f.fetchCalls == 1 {
+			if err := os.WriteFile(dst+".part", []byte("partial"), 0o644); err != nil {
+				return 0, err
+			}
+			<-ctx.Done()
+			return 7, ctx.Err()
+		}
+		if err := os.Remove(dst + ".part"); err != nil {
+			return 0, err
+		}
+		if err := os.WriteFile(dst, []byte("good"), 0o644); err != nil {
+			return 0, err
+		}
+		return 4, nil
+	}
+	cleaned := 0
+	stubIRCSearcher(t, f, func() error { cleaned++; return nil }, nil)
+	resolve, newClient, resolves, clients := countingSeams()
+
+	t.Setenv("BOOXD_IRC_DOWNLOAD_TIMEOUT", "1ms")
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"get", ircRef()}, &stdout, &stderr, resolve, newClient); code != 1 {
+		t.Fatalf("first attempt code=%d stderr=%q", code, stderr.String())
+	}
+	if _, err := os.Stat(part); err != nil {
+		t.Fatalf("first attempt kept no partial: %v", err)
+	}
+	if _, err := os.Stat(wantPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("first attempt created the destination: %v", err)
+	}
+
+	t.Setenv("BOOXD_IRC_DOWNLOAD_TIMEOUT", "30s")
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"get", ircRef()}, &stdout, &stderr, resolve, newClient); code != 0 || stdout.String() != "saved "+wantPath+"\n" {
+		t.Fatalf("second attempt code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if f.fetchCalls != 2 || cleaned != 2 || *resolves != 0 || *clients != 0 {
+		t.Fatalf("fetch=%d cleanup=%d resolver=%d client=%d", f.fetchCalls, cleaned, *resolves, *clients)
+	}
+	if _, err := os.Stat(part); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("second attempt left a partial: %v", err)
+	}
+	if body, err := os.ReadFile(wantPath); err != nil || string(body) != "good" {
+		t.Fatalf("saved body=%q err=%v", body, err)
+	}
+}
+
+func TestGetIRCFlags(t *testing.T) {
+	dir := ircEnvironment(t)
+	for _, tt := range []struct {
+		name  string
+		flags []string
+		want  string
+	}{
+		{name: "cookies", flags: []string{"--cookies", filepath.Join(dir, "cookies.txt")}, want: "booxd: --cookies applies to anna only\n"},
+		{name: "mirror", flags: []string{"--mirror", "https://mirror.test"}, want: "booxd: --mirror applies to anna only\n"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f := &fakeIRCSearcher{}
+			h := stubIRCSearcher(t, f, func() error { return nil }, nil)
+			resolve, newClient, resolves, clients := countingSeams()
+			args := append([]string{"get"}, tt.flags...)
+			args = append(args, ircRef())
+			var stdout, stderr bytes.Buffer
+			code := run(args, &stdout, &stderr, resolve, newClient)
+			if code != 2 || stdout.Len() != 0 || stderr.String() != tt.want {
+				t.Fatalf("code=%d stdout=%q stderr=%q; want 2 %q", code, stdout.String(), stderr.String(), tt.want)
+			}
+			if h.calls != 0 || f.fetchCalls != 0 || *resolves != 0 || *clients != 0 {
+				t.Fatalf("dial=%d fetch=%d resolver=%d client=%d; want all 0", h.calls, f.fetchCalls, *resolves, *clients)
+			}
+		})
+	}
+}
+
+func TestGetIRCRejectsBadRef(t *testing.T) {
+	ircEnvironment(t)
+	for _, ref := range []string{"irc:16d6770d2ba9", `irc:!artemis_serv 16d6770d2ba9 | The Last Hero\n`} {
+		t.Run(ref, func(t *testing.T) {
+			f := &fakeIRCSearcher{}
+			stubIRCSearcher(t, f, func() error { return nil }, nil)
+			resolve, newClient, resolves, clients := countingSeams()
+			var stdout, stderr bytes.Buffer
+			code := run([]string{"get", ref}, &stdout, &stderr, resolve, newClient)
+			if code != 2 || stdout.Len() != 0 || !strings.HasPrefix(stderr.String(), "booxd: source irc:") {
+				t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+			}
+			if f.fetchCalls != 0 || *resolves != 0 || *clients != 0 {
+				t.Fatalf("fetch=%d resolver=%d client=%d; want all 0", f.fetchCalls, *resolves, *clients)
+			}
+		})
 	}
 }

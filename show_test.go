@@ -60,7 +60,6 @@ func TestRunShow(t *testing.T) {
 		{name: "two ids", args: []string{"show", "1", "2"}, wantCode: 2, wantErr: usage},
 		{name: "invalid id", args: []string{"show", "../etc"}, wantCode: 2, wantErr: `booxd: invalid book id "../etc"` + "\n"},
 		{name: "qualified anna id", args: []string{"show", "anna:36451"}, body: full, status: 200, wantCode: 0, wantOut: fullOutput, wantErr: "mirror: https://mirror.test\n", wantURL: "https://mirror.test/books/36451", wantClients: 1, calls: 1, wantLookups: 1},
-		{name: "other source refused", args: []string{"show", "irc:16d6770d2ba9"}, wantCode: 2, wantErr: "booxd: irc books are not available yet\n"},
 		{name: "anna id with hash", args: []string{"show", "anna:12/ab"}, wantCode: 2, wantErr: `booxd: invalid book id "anna:12/ab"` + "\n"},
 		{name: "help", args: []string{"show", "-h"}, wantCode: 2, wantErr: usage},
 		{name: "full fixture", args: []string{"show", "36451"}, body: full, status: 200, wantCode: 0, wantOut: fullOutput, wantErr: "mirror: https://mirror.test\n", wantURL: "https://mirror.test/books/36451", wantClients: 1, calls: 1, wantLookups: 1},
@@ -161,6 +160,43 @@ func TestRunShow(t *testing.T) {
 				if !ok || time.Since(entry.FetchedAt) >= cache.DefaultTTL {
 					t.Fatalf("stale entry was not refreshed: %+v, %v", entry, ok)
 				}
+			}
+		})
+	}
+}
+
+func TestShowIRC(t *testing.T) {
+	ircEnvironment(t)
+	resolve, newClient, resolves, clients := countingSeams()
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"show", ircRef()}, &stdout, &stderr, resolve, newClient)
+	want := "title: The Last Hero\nauthor: -\npublisher: -\nyear: -\nlanguage: -\nformat: pdf\nsize: -\nisbn: -\npages: -\ndownloads:\n  - irc\n"
+	if code != 0 || stdout.String() != want || stderr.Len() != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q; want 0 %q", code, stdout.String(), stderr.String(), want)
+	}
+	if *resolves != 0 || *clients != 0 {
+		t.Fatalf("resolver=%d client=%d; want 0 0", *resolves, *clients)
+	}
+}
+
+func TestShowIRCRejects(t *testing.T) {
+	ircEnvironment(t)
+	for _, tt := range []struct {
+		name string
+		args []string
+	}{
+		{name: "bare pack id", args: []string{"show", "--source", "irc", "16d6770d2ba9"}},
+		{name: "newline escape", args: []string{"show", `irc:!artemis_serv 16d6770d2ba9 | The Last Hero\n`}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			resolve, newClient, resolves, clients := countingSeams()
+			var stdout, stderr bytes.Buffer
+			code := run(tt.args, &stdout, &stderr, resolve, newClient)
+			if code != 2 || stdout.Len() != 0 || !strings.HasPrefix(stderr.String(), "booxd: source irc:") {
+				t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+			}
+			if *resolves != 0 || *clients != 0 {
+				t.Fatalf("resolver=%d client=%d; want 0 0", *resolves, *clients)
 			}
 		})
 	}

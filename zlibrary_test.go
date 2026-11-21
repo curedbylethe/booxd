@@ -120,24 +120,6 @@ func TestSourceUnknown(t *testing.T) {
 	}
 }
 
-func TestSourceIRCRefused(t *testing.T) {
-	withGetEnvironment(t, t.TempDir())
-	for _, args := range [][]string{
-		{"show", "--source", "irc", "16d6770d2ba9"},
-		{"get", "--source", "irc", "16d6770d2ba9"},
-		{"show", "irc:16d6770d2ba9"},
-	} {
-		t.Run(strings.Join(args, " "), func(t *testing.T) {
-			resolve, newClient := noNetwork(t)
-			var stdout, stderr bytes.Buffer
-			code := run(args, &stdout, &stderr, resolve, newClient)
-			if code != 2 || stderr.String() != "booxd: irc books are not available yet\n" {
-				t.Fatalf("code=%d stderr=%q", code, stderr.String())
-			}
-		})
-	}
-}
-
 func TestSourcePrefixWins(t *testing.T) {
 	withGetEnvironment(t, t.TempDir())
 	// A zlibrary prefix beats --source anna: the zlibrary path asks for base_url.

@@ -5,10 +5,16 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
+	"os/signal"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/curedbylethe/booxd/internal/config"
+	"github.com/curedbylethe/booxd/internal/down"
 	"github.com/curedbylethe/booxd/internal/irc"
+	"github.com/curedbylethe/booxd/internal/parse"
 	"github.com/curedbylethe/booxd/internal/source"
 	sourceirc "github.com/curedbylethe/booxd/internal/source/irc"
 )
@@ -85,4 +91,66 @@ func searchIRC(cfg config.Config, query string, log, stdout, stderr io.Writer) i
 	}
 	printBooks(stdout, toParseBooks(providers))
 	return 0
+}
+
+// showIRC renders a reference offline; the reference already carries the file
+// name and format, so no config or network is needed.
+func showIRC(ref source.Ref, stdout, stderr io.Writer) int {
+	book, err := sourceirc.BookFromRef(ref)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
+		return 2
+	}
+	renderShow(stdout, parse.Detail{
+		ID:        ref,
+		Title:     book.Name,
+		Format:    book.Format,
+		Downloads: []parse.Download{{Label: "irc"}},
+	})
+	return 0
+}
+
+func getIRC(cfg config.Config, ref source.Ref, open bool, log, stdout, stderr io.Writer) int {
+	book, err := sourceirc.BookFromRef(ref)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
+		return 2
+	}
+	dst := filepath.Join(cfg.DownloadDir, ircFileName(book))
+	if info, statErr := os.Stat(dst); statErr == nil && info.Mode().IsRegular() && info.Size() > 0 {
+		return finishGet(stdout, stderr, dst, down.ErrExists, open)
+	}
+
+	baseCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	ctx, cancel := context.WithTimeout(baseCtx, cfg.IRCDownloadTimeout)
+	defer cancel()
+	_, _ = fmt.Fprintf(stderr, "irc: requesting %s.%s from %s\n", book.Name, book.Format, book.Server)
+
+	s, cleanup, err := newIRCSearcher(ctx, cfg, log)
+	defer func() {
+		if cleanup != nil {
+			_ = cleanup()
+		}
+	}()
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
+		return 1
+	}
+	if _, err := s.Fetch(ctx, book, dst); err != nil {
+		_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
+		return 1
+	}
+	return finishGet(stdout, stderr, dst, nil, open)
+}
+
+// ircFileName keeps the request line's file name inside cfg.DownloadDir.
+func ircFileName(book sourceirc.Book) string {
+	return strings.Map(func(r rune) rune {
+		switch r {
+		case '/', '\\', '\r', '\n', '\t', '\x00':
+			return '_'
+		}
+		return r
+	}, book.Name+"."+book.Format)
 }
