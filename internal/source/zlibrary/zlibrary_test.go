@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode"
 
 	"github.com/curedbylethe/booxd/internal/cache"
 	"github.com/curedbylethe/booxd/internal/fetch"
@@ -154,7 +155,7 @@ func TestDetailPathAndFields(t *testing.T) {
 	want := source.Detail{
 		Ref: leGuin, Title: "The Left Hand of Darkness", Author: "Ursula K. Le Guin", Publisher: "Ace Books",
 		Year: "1969", Language: "english", Format: "epub", Size: "1.20 MB", ISBN: "9780441478125", Pages: "304",
-		Description: "<p>A lone envoy visits Gethen.</p>\n<p>Winter &amp; ice.</p>", HasDownload: true,
+		Description: "<p>A lone envoy visits Gethen.</p><p>Winter &amp; ice.</p>", HasDownload: true,
 	}
 	if got != want {
 		t.Fatalf("Detail = %+v\nwant %+v", got, want)
@@ -253,6 +254,35 @@ func TestChallenge(t *testing.T) {
 				t.Fatalf("error = %q", msg)
 			}
 		})
+	}
+}
+
+// Remote text must not carry control characters into the terminal.
+func TestDecodeSearchStripsControlCharacters(t *testing.T) {
+	body := `{"success":1,"books":[{"id":"5512","hash":"a1b2c3","title":"T\u001b[2Jitle","author":"A\nB","year":"19\u001b69","extension":"e\u001bpub","filesizeString":"1\u000bMB","publisher":"P\tQ","language":"en","isbn":"97\u001b78"}]}`
+	books, err := decodeSearch(&fetch.Response{StatusCode: http.StatusOK, Body: []byte(body)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := books[0]
+	for _, s := range []string{b.Title, b.Author, b.Year, b.Format, b.Size, b.Publisher, b.Language, b.ISBN} {
+		if i := strings.IndexFunc(s, unicode.IsControl); i >= 0 {
+			t.Errorf("%q carries control rune %q", s, s[i])
+		}
+	}
+}
+
+func TestDetailStripsControlCharacters(t *testing.T) {
+	body := `{"success":1,"book":{"id":"5512","hash":"a1b2c3","title":"T\u001b[2Jitle","author":"A\nB","description":"D\u001b[2Jer\nEnd","dl":"/dl/5512/a1b2c3"}}`
+	s, _ := serve(t, false, reply(http.StatusOK, []byte(body)))
+	d, err := s.Detail(context.Background(), leGuin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []string{d.Title, d.Author, d.Description} {
+		if i := strings.IndexFunc(s, unicode.IsControl); i >= 0 {
+			t.Errorf("%q carries control rune %q", s, s[i])
+		}
 	}
 }
 

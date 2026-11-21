@@ -49,16 +49,16 @@ func (s *Searcher) Detail(ctx context.Context, ref source.Ref) (source.Detail, e
 		}
 		return source.Detail{
 			Ref:         ref,
-			Title:       string(b.Title),
-			Author:      string(b.Author),
-			Publisher:   string(b.Publisher),
-			Year:        string(b.Year),
-			Language:    string(b.Language),
-			Format:      string(b.Extension),
-			Size:        string(size),
-			ISBN:        string(b.ISBN),
-			Pages:       string(b.Pages),
-			Description: string(b.Description),
+			Title:       display(string(b.Title)),
+			Author:      display(string(b.Author)),
+			Publisher:   display(string(b.Publisher)),
+			Year:        display(string(b.Year)),
+			Language:    display(string(b.Language)),
+			Format:      display(string(b.Extension)),
+			Size:        display(string(size)),
+			ISBN:        display(string(b.ISBN)),
+			Pages:       display(string(b.Pages)),
+			Description: display(string(b.Description)),
 			HasDownload: b.Download != "",
 		}, nil
 	}

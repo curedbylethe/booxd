@@ -65,14 +65,14 @@ func decodeSearch(resp *fetch.Response) ([]source.Book, error) {
 		}
 		books = append(books, source.Book{
 			Ref:       ref,
-			Title:     string(b.Title),
-			Author:    string(b.Author),
-			Year:      string(b.Year),
-			Format:    string(b.Extension),
-			Size:      string(b.Size),
-			Publisher: string(b.Publisher),
-			Language:  string(b.Language),
-			ISBN:      string(b.ISBN),
+			Title:     display(string(b.Title)),
+			Author:    display(string(b.Author)),
+			Year:      display(string(b.Year)),
+			Format:    display(string(b.Extension)),
+			Size:      display(string(b.Size)),
+			Publisher: display(string(b.Publisher)),
+			Language:  display(string(b.Language)),
+			ISBN:      display(string(b.ISBN)),
 		})
 	}
 	return books, nil
