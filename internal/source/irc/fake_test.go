@@ -28,6 +28,7 @@ type fakeClient struct {
 	sayErr   error
 	releases int
 	offers   chan dcc.Offer
+	onSay    func(n int) // optional hook; n is the 1-based Say count
 }
 
 func newFakeClient(channel string) *fakeClient {
@@ -44,10 +45,15 @@ func (f *fakeClient) Say(_ context.Context, target, text string) error {
 	f.mu.Lock()
 	f.says = append(f.says, text)
 	f.targets = append(f.targets, target)
+	n := len(f.says)
 	err := f.sayErr
+	hook := f.onSay
 	f.mu.Unlock()
 	if err == nil {
 		f.said <- struct{}{}
+		if hook != nil {
+			hook(n)
+		}
 	}
 	return err
 }
@@ -109,7 +115,7 @@ func pipeOpen(t *testing.T, data []byte) func(context.Context, dcc.Offer) (io.Re
 	return func(context.Context, dcc.Offer) (io.ReadCloser, error) {
 		reader, writer := net.Pipe()
 		go func() {
-			defer writer.Close()
+			defer func() { _ = writer.Close() }()
 			_, _ = writer.Write(data)
 		}()
 		return reader, nil
