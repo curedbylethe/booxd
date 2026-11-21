@@ -143,6 +143,35 @@ func TestSendGap(t *testing.T) {
 	})
 }
 
+func TestReleaseSearch(t *testing.T) {
+	client, f, _ := gateClient(t, 0, time.Hour)
+	ctx := context.Background()
+
+	if err := client.Say(ctx, "#ebooks", "@search one"); err != nil {
+		t.Fatalf("first Say: %v", err)
+	}
+	f.collect(1)
+
+	// A zero gap is fine, but the slot still blocks a second search.
+	if err := client.Say(ctx, "#ebooks", "@search two"); !errors.Is(err, ErrSearchPending) {
+		t.Fatalf("Say with slot held = %v, want ErrSearchPending", err)
+	}
+
+	client.ReleaseSearch()
+	if err := client.Say(ctx, "#ebooks", "@search two"); err != nil {
+		t.Fatalf("Say after ReleaseSearch: %v", err)
+	}
+	f.collect(1)
+
+	// Calling it with nothing pending is safe.
+	client.ReleaseSearch()
+	client.ReleaseSearch()
+	if err := client.Say(ctx, "#ebooks", "@search three"); err != nil {
+		t.Fatalf("Say after redundant ReleaseSearch: %v", err)
+	}
+	f.collect(1)
+}
+
 func TestSearchSlot(t *testing.T) {
 	t.Run("occupied until the reply", func(t *testing.T) {
 		client, f, clk := gateClient(t, 10*time.Second, 30*time.Second)

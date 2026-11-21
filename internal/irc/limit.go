@@ -63,6 +63,12 @@ func (c *Client) gateSend(target string) error {
 	return nil
 }
 
+// ReleaseSearch frees the in-flight search slot. It is safe to call when no
+// search is pending; it does not touch the send gap.
+func (c *Client) ReleaseSearch() {
+	c.releaseSlot(func(string) bool { return true })
+}
+
 // releaseSearchFrom frees a nick target when that nick answers, and a channel
 // target when the answer is addressed to our nick.
 func (c *Client) releaseSearchFrom(msg Message) {
