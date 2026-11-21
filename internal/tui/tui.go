@@ -145,6 +145,9 @@ func run(ctx context.Context, screen tcell.Screen, opts Options, inline bool) er
 				m.statusErr = false
 				paint(screen, m)
 				seq, from, query, page := m.searchSeq, m.source, m.query, m.page
+				if act.page > 0 {
+					page = act.page
+				}
 				cancelSearch()
 				sctx, scancel := context.WithCancel(ctx)
 				cancelSearch = scancel

@@ -101,6 +101,7 @@ See [Termux setup](docs/termux.md) for Boox details. See [CONTRIBUTING.md](CONTR
 | `Backspace`, `Delete` | Edit query | Query |
 | `Left`, `Right`, `Home`, `End` | Move caret | Query |
 | `Up`, `Down`, `j`, `k` | Move selection | Results |
+| `n`, `p` | Next page, previous page of results; `p` does nothing on page 1 | Results |
 | `Up`, `Down`, `j`, `k` | Scroll the description | Details |
 | `/` | Edit query | Results or details |
 | `q` | Quit | Results or details |

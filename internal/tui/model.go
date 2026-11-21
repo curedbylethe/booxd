@@ -53,6 +53,7 @@ type action struct {
 	dirty    bool
 	quit     bool
 	search   bool
+	page     int // page a search requests; zero means the model's page
 	detail   bool
 	download bool
 	cancel   bool
@@ -98,6 +99,7 @@ func handleKey(m model, ev *tcell.EventKey) (model, action) {
 				return m, action{dirty: true}
 			}
 			m.view = stateResults
+			m.page = 1
 			return m, action{dirty: true, search: true}
 		case tcell.KeyEscape:
 			m.view = stateResults
@@ -109,6 +111,7 @@ func handleKey(m model, ev *tcell.EventKey) (model, action) {
 			// source, and its "…" status with it.
 			m.source = nextSource(m.source)
 			m.searchSeq++
+			m.page = 1
 			m.status = ""
 			m.statusErr = false
 			m.books = nil
@@ -168,6 +171,7 @@ func handleKey(m model, ev *tcell.EventKey) (model, action) {
 			// searched again on the new one. Drop the old source's rows so
 			// nothing of theirs stays selectable while that search runs.
 			m.source = nextSource(m.source)
+			m.page = 1
 			m.books = nil
 			m.selected = 0
 			m.offset = 0
@@ -195,6 +199,13 @@ func handleKey(m model, ev *tcell.EventKey) (model, action) {
 				m.selected++
 			case 'k':
 				m.selected--
+			case 'n':
+				return m, action{dirty: true, search: true, page: m.page + 1}
+			case 'p':
+				// Page 1 has no previous page: change nothing and repaint nothing.
+				if m.page > 1 {
+					return m, action{dirty: true, search: true, page: m.page - 1}
+				}
 			case 'q':
 				return m, action{quit: true}
 			case '?':
@@ -289,6 +300,12 @@ func applyResults(m model, page int, books []parse.Book, err error) model {
 		return m
 	}
 	m.statusErr = false
+	if len(books) == 0 && page > 1 {
+		// An empty later page is the end of the results: keep the rows and
+		// the page so the reader can go back.
+		m.status = fmt.Sprintf("no results on page %d", page)
+		return m
+	}
 	m.books = books
 	m.page = page
 	m.selected = 0
@@ -296,7 +313,7 @@ func applyResults(m model, page int, books []parse.Book, err error) model {
 	if len(books) == 0 {
 		m.status = "no results"
 	} else {
-		m.status = fmt.Sprintf("%d results", len(books))
+		m.status = fmt.Sprintf("%d results · page %d", len(books), page)
 	}
 	return m
 }

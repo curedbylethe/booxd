@@ -791,7 +791,7 @@ func TestSearchStaleResultIsDropped(t *testing.T) {
 		t.Fatalf("stale result applied: dirty=%t books=%v status=%q", dirty, got.books, got.status)
 	}
 	got, dirty = applySearch(m, 2, 1, []parse.Book{{ID: annaRef("new")}}, nil)
-	if !dirty || got.books[0].ID != annaRef("new") || got.status != "1 results" {
+	if !dirty || got.books[0].ID != annaRef("new") || got.status != "1 results · page 1" {
 		t.Fatalf("current result not applied: dirty=%t books=%v status=%q", dirty, got.books, got.status)
 	}
 }
@@ -1152,5 +1152,54 @@ func TestSearchCancelsSupersededRequest(t *testing.T) {
 	}
 	if step != 2 {
 		t.Fatalf("step = %d, want 2", step)
+	}
+}
+
+// pagedSearch returns one book titled for the page it was asked for, and
+// records every requested page.
+func pagedSearch(pages *[]int) SearchFunc {
+	return func(_ context.Context, _ source.Name, _ string, page int) ([]parse.Book, error) {
+		*pages = append(*pages, page)
+		return []parse.Book{{ID: annaRef(fmt.Sprintf("p%d", page)), Title: fmt.Sprintf("Page %d result", page)}}, nil
+	}
+}
+
+func TestPageKeysRequestPages(t *testing.T) {
+	sim := newSimulation(t, 80, 24)
+	pressRune(sim, 'x')
+	sim.InjectKey(tcell.KeyEnter, 0, tcell.ModNone)
+	for _, r := range "npq" {
+		pressRune(sim, r)
+	}
+	var pages []int
+	if err := runScreen(context.Background(), sim, pagedSearch(&pages)); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(pages, []int{1, 2, 1}) {
+		t.Fatalf("requested pages = %v, want [1 2 1]", pages)
+	}
+	lines, _, _, _ := simLines(sim)
+	if !strings.Contains(lines[1], "Page 1 result") || !strings.Contains(lines[23], "1 results · page 1") {
+		t.Fatalf("rows=%q status=%q", lines[1], lines[23])
+	}
+}
+
+func TestPageSurvivesResize(t *testing.T) {
+	sim := newSimulation(t, 80, 24)
+	pressRune(sim, 'x')
+	sim.InjectKey(tcell.KeyEnter, 0, tcell.ModNone)
+	pressRune(sim, 'n')
+	sim.SetSize(100, 30)
+	if err := sim.PostEvent(tcell.NewEventResize(100, 30)); err != nil {
+		t.Fatal(err)
+	}
+	pressRune(sim, 'q')
+	var pages []int
+	if err := runScreen(context.Background(), sim, pagedSearch(&pages)); err != nil {
+		t.Fatal(err)
+	}
+	lines, _, width, height := simLines(sim)
+	if width != 100 || height != 30 || !strings.Contains(lines[1], "Page 2 result") || !strings.Contains(lines[29], "1 results · page 2") {
+		t.Fatalf("%dx%d row=%q status=%q", width, height, lines[1], lines[29])
 	}
 }
