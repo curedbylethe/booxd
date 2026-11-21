@@ -8,16 +8,30 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/curedbylethe/booxd/internal/cache"
 	"github.com/curedbylethe/booxd/internal/config"
 	"github.com/curedbylethe/booxd/internal/parse"
+	"github.com/curedbylethe/booxd/internal/source"
 )
 
-var bookIDPattern = regexp.MustCompile(`^[0-9]+(?:-[A-Za-z0-9._-]+)?$`)
+// parseBookRef reads a book argument and refuses any source this build cannot
+// serve; it returns the Anna's Archive page path (the argument minus an
+// "anna:" prefix, slug kept) for the request.
+func parseBookRef(raw string, stderr io.Writer) (source.Ref, string, bool) {
+	ref, err := source.Parse(raw)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "booxd: invalid book id %q\n", raw)
+		return source.Ref{}, "", false
+	}
+	if ref.Source != source.Anna {
+		_, _ = fmt.Fprintf(stderr, "booxd: %s books are not available yet\n", ref.Source)
+		return source.Ref{}, "", false
+	}
+	return ref, strings.TrimPrefix(strings.TrimSpace(raw), string(source.Anna)+":"), true
+}
 
 func runShow(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient clientFunc) int {
 	flags := flag.NewFlagSet("show", flag.ContinueOnError)
@@ -36,9 +50,8 @@ func runShow(args []string, stdout, stderr io.Writer, resolve resolveFunc, newCl
 		flags.Usage()
 		return 2
 	}
-	bookID := flags.Arg(0)
-	if !bookIDPattern.MatchString(bookID) {
-		_, _ = fmt.Fprintf(stderr, "booxd: invalid book id %q\n", bookID)
+	ref, pagePath, ok := parseBookRef(flags.Arg(0), stderr)
+	if !ok {
 		return 2
 	}
 
@@ -57,7 +70,7 @@ func runShow(args []string, stdout, stderr io.Writer, resolve resolveFunc, newCl
 	if *verbose {
 		log = stderr
 	}
-	detail, err := loadDetail(context.Background(), cfg, bookID, *override, store, resolve, newClient, log, stderr)
+	detail, err := loadDetail(context.Background(), cfg, ref, pagePath, *override, store, resolve, newClient, log, stderr)
 	if err != nil {
 		var statusErr statusError
 		if errors.As(err, &statusErr) {
@@ -77,13 +90,13 @@ type statusError struct{ code int }
 func (e statusError) Error() string { return fmt.Sprintf("status %d", e.code) }
 
 // loadDetail returns a book detail, reusing the cache before fetching. The
-// cache key drops any slug suffix; the fetch URL keeps the ID as given. log
-// receives fetch verbosity; mirror receives the resolved base URL.
-func loadDetail(ctx context.Context, cfg config.Config, bookID, override string, store *cache.Store, resolve resolveFunc, newClient clientFunc, log, mirror io.Writer) (parse.Detail, error) {
-	id, _, _ := strings.Cut(bookID, "-")
+// cache key uses the reference alone; the fetch URL uses pagePath, which may
+// carry a slug. log receives fetch verbosity; mirror receives the resolved
+// base URL.
+func loadDetail(ctx context.Context, cfg config.Config, ref source.Ref, pagePath, override string, store *cache.Store, resolve resolveFunc, newClient clientFunc, log, mirror io.Writer) (parse.Detail, error) {
 	now := time.Now()
 	if store != nil {
-		if entry, ok := store.Get("book:"+id, 0); ok && entry.Status == http.StatusOK {
+		if entry, ok := store.Get("book:"+ref.ID, 0); ok && entry.Status == http.StatusOK {
 			age := now.Sub(entry.FetchedAt)
 			if age >= 0 && age < cache.DefaultTTL {
 				if detail, parseErr := parse.DetailPage(bytes.NewReader(entry.Body)); parseErr == nil {
@@ -101,7 +114,7 @@ func loadDetail(ctx context.Context, cfg config.Config, bookID, override string,
 	if mirror != nil {
 		_, _ = fmt.Fprintf(mirror, "mirror: %s\n", base)
 	}
-	response, err := client.Get(ctx, strings.TrimRight(base, "/")+"/books/"+bookID)
+	response, err := client.Get(ctx, strings.TrimRight(base, "/")+"/books/"+pagePath)
 	if err != nil {
 		return parse.Detail{}, err
 	}
@@ -113,7 +126,7 @@ func loadDetail(ctx context.Context, cfg config.Config, bookID, override string,
 		return parse.Detail{}, err
 	}
 	if store != nil {
-		_ = store.Put(cache.Entry{Query: "book:" + id, Page: 0, Status: http.StatusOK, FetchedAt: now, Body: response.Body})
+		_ = store.Put(cache.Entry{Query: "book:" + ref.ID, Page: 0, Status: http.StatusOK, FetchedAt: now, Body: response.Body})
 	}
 	return detail, nil
 }

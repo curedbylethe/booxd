@@ -40,9 +40,8 @@ func runGet(args []string, stdout, stderr io.Writer, resolve resolveFunc, newCli
 		flags.Usage()
 		return 2
 	}
-	bookID := flags.Arg(0)
-	if !bookIDPattern.MatchString(bookID) {
-		_, _ = fmt.Fprintf(stderr, "booxd: invalid book id %q\n", bookID)
+	ref, pagePath, ok := parseBookRef(flags.Arg(0), stderr)
+	if !ok {
 		return 2
 	}
 
@@ -75,7 +74,7 @@ func runGet(args []string, stdout, stderr io.Writer, resolve resolveFunc, newCli
 	}
 	base = strings.TrimRight(base, "/")
 	_, _ = fmt.Fprintf(stderr, "mirror: %s\n", base)
-	bookURL := base + "/books/" + bookID
+	bookURL := base + "/books/" + pagePath
 	if *cookiesPath == "" {
 		_, _ = fmt.Fprintf(stderr, "booxd: downloads need a signed-in session; pass --cookies cookies.txt: %s\n", bookURL)
 		return 2
@@ -124,7 +123,7 @@ func runGet(args []string, stdout, stderr io.Writer, resolve resolveFunc, newCli
 	path, err := down.Download(ctx, client, down.Request{
 		URL:      downloadURL,
 		Dir:      cfg.DownloadDir,
-		Name:     fallbackName(bookID, detail.Format),
+		Name:     fallbackName(ref.ID, detail.Format),
 		Progress: stderr,
 	})
 	if errors.Is(err, down.ErrExists) {

@@ -16,6 +16,7 @@ import (
 	"github.com/curedbylethe/booxd/internal/fetch"
 	"github.com/curedbylethe/booxd/internal/mirror"
 	"github.com/curedbylethe/booxd/internal/parse"
+	"github.com/curedbylethe/booxd/internal/source"
 	"github.com/curedbylethe/booxd/internal/tui"
 	"github.com/curedbylethe/booxd/internal/update"
 	"golang.org/x/term"
@@ -212,8 +213,8 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 			return outcome.Books, err
 		}
 		detailClient := func(config.Config, io.Writer, http.CookieJar) *fetch.Client { return client }
-		detailFunc := func(ctx context.Context, id string) (parse.Detail, error) {
-			return loadDetail(ctx, cfg, id, "", store, resolve, detailClient, nil, nil)
+		detailFunc := func(ctx context.Context, ref source.Ref) (parse.Detail, error) {
+			return loadDetail(ctx, cfg, ref, ref.ID, "", store, resolve, detailClient, nil, nil)
 		}
 		if err := tui.Run(context.Background(), tui.Options{Search: searchFunc, Detail: detailFunc, Mono: monoEnabled(*mono, os.Getenv("NO_COLOR"))}); err != nil {
 			_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)

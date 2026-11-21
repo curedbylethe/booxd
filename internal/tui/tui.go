@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/curedbylethe/booxd/internal/parse"
+	"github.com/curedbylethe/booxd/internal/source"
 	"github.com/gdamore/tcell/v2"
 )
 
@@ -12,7 +13,7 @@ import (
 type SearchFunc func(ctx context.Context, query string) ([]parse.Book, error)
 
 // DetailFunc loads one book's detail page.
-type DetailFunc func(ctx context.Context, id string) (parse.Detail, error)
+type DetailFunc func(ctx context.Context, ref source.Ref) (parse.Detail, error)
 
 // Options configures the TUI.
 type Options struct {
@@ -81,7 +82,7 @@ func runScreenWithTheme(ctx context.Context, screen tcell.Screen, search SearchF
 				m.statusErr = false
 				paint(screen, m)
 				if m.selected < len(m.books) && !m.books[m.selected].ID.IsZero() {
-					result, err := detail(ctx, m.books[m.selected].ID.String())
+					result, err := detail(ctx, m.books[m.selected].ID)
 					if err != nil {
 						m.status = err.Error()
 						m.statusErr = true

@@ -122,6 +122,8 @@ booxd show BOOK_ID
 booxd get --cookies cookies.txt BOOK_ID
 ```
 
+`BOOK_ID` is the ID that `search` prints (`36451`), the same ID with a slug (`36451-the-hobbit`), or the qualified form `anna:36451`. A reference that names any other source exits with status 2 and `booxd: <source> books are not available yet`.
+
 | Exit code | Meaning |
 | --- | --- |
 | `0` | Success or no search results |

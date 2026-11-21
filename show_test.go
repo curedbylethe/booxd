@@ -15,6 +15,7 @@ import (
 	"github.com/curedbylethe/booxd/internal/cache"
 	"github.com/curedbylethe/booxd/internal/config"
 	"github.com/curedbylethe/booxd/internal/fetch"
+	"github.com/curedbylethe/booxd/internal/source"
 )
 
 func showFixture(t *testing.T, name string) []byte {
@@ -58,6 +59,9 @@ func TestRunShow(t *testing.T) {
 		{name: "no id", args: []string{"show"}, wantCode: 2, wantErr: usage},
 		{name: "two ids", args: []string{"show", "1", "2"}, wantCode: 2, wantErr: usage},
 		{name: "invalid id", args: []string{"show", "../etc"}, wantCode: 2, wantErr: `booxd: invalid book id "../etc"` + "\n"},
+		{name: "qualified anna id", args: []string{"show", "anna:36451"}, body: full, status: 200, wantCode: 0, wantOut: fullOutput, wantErr: "mirror: https://mirror.test\n", wantURL: "https://mirror.test/books/36451", wantClients: 1, calls: 1, wantLookups: 1},
+		{name: "other source refused", args: []string{"show", "zlibrary:1234/ab12cd"}, wantCode: 2, wantErr: "booxd: zlibrary books are not available yet\n"},
+		{name: "anna id with hash", args: []string{"show", "anna:12/ab"}, wantCode: 2, wantErr: `booxd: invalid book id "anna:12/ab"` + "\n"},
 		{name: "help", args: []string{"show", "-h"}, wantCode: 2, wantErr: usage},
 		{name: "full fixture", args: []string{"show", "36451"}, body: full, status: 200, wantCode: 0, wantOut: fullOutput, wantErr: "mirror: https://mirror.test\n", wantURL: "https://mirror.test/books/36451", wantClients: 1, calls: 1, wantLookups: 1},
 		{name: "slug id", args: []string{"show", "36451-36451-test"}, body: full, status: 200, wantCode: 0, wantOut: fullOutput, wantErr: "mirror: https://mirror.test\n", wantURL: "https://mirror.test/books/36451-36451-test", wantClients: 1, calls: 1},
@@ -197,7 +201,7 @@ func TestLoadDetail(t *testing.T) {
 				resolves++
 				return "https://mirror.test", nil
 			}
-			detail, err := loadDetail(context.Background(), config.Config{}, "24390-slug", "", store, resolve, newClient, nil, nil)
+			detail, err := loadDetail(context.Background(), config.Config{}, source.Ref{Source: source.Anna, ID: "24390"}, "24390-slug", "", store, resolve, newClient, nil, nil)
 			if tt.wantErr == "" {
 				if err != nil || detail.Title != "Test" {
 					t.Fatalf("detail=%+v err=%v", detail, err)

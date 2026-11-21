@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/curedbylethe/booxd/internal/parse"
+	"github.com/curedbylethe/booxd/internal/source"
 	"github.com/gdamore/tcell/v2"
 )
 
@@ -99,8 +100,10 @@ func TestRunScreenDetailUsesCallback(t *testing.T) {
 	sim.InjectKey(tcell.KeyRune, 'q', tcell.ModNone)
 	searches, details := 0, 0
 	book := parse.Book{ID: annaRef("42"), Title: "A title", Author: "An author", Year: "2024", Format: "epub", Size: "1 MB", Publisher: "Press", Language: "en", URL: "/books/42"}
-	detail := func(context.Context, string) (parse.Detail, error) {
+	var gotRef source.Ref
+	detail := func(_ context.Context, ref source.Ref) (parse.Detail, error) {
 		details++
+		gotRef = ref
 		return parse.Detail{Description: "First line"}, nil
 	}
 	if err := runScreenWithTheme(context.Background(), sim, func(context.Context, string) ([]parse.Book, error) {
@@ -112,6 +115,9 @@ func TestRunScreenDetailUsesCallback(t *testing.T) {
 	lines, _, _, _ := simLines(sim)
 	if searches != 1 || details != 1 {
 		t.Fatalf("search calls=%d detail calls=%d", searches, details)
+	}
+	if gotRef != book.ID {
+		t.Fatalf("detail ref=%+v, want %+v", gotRef, book.ID)
 	}
 	if !strings.Contains(lines[0], "title: A title") || !strings.Contains(lines[8], "url: /books/42") {
 		t.Fatalf("detail metadata=%q", lines[:9])
@@ -138,7 +144,7 @@ func TestRunScreenDetailLoadingAndError(t *testing.T) {
 	loading := newSimulation(t, 80, 24)
 	open(loading)
 	var status string
-	detail := func(context.Context, string) (parse.Detail, error) {
+	detail := func(context.Context, source.Ref) (parse.Detail, error) {
 		lines, _, _, _ := simLines(loading)
 		status = strings.TrimRight(lines[23], " ")
 		return parse.Detail{Description: "First line"}, nil
@@ -156,7 +162,7 @@ func TestRunScreenDetailLoadingAndError(t *testing.T) {
 	open(failing)
 	err := runScreenWithTheme(context.Background(), failing, func(context.Context, string) ([]parse.Book, error) {
 		return book(), nil
-	}, func(context.Context, string) (parse.Detail, error) {
+	}, func(context.Context, source.Ref) (parse.Detail, error) {
 		return parse.Detail{}, errors.New("offline")
 	}, false)
 	if err != nil {
@@ -200,7 +206,7 @@ func TestRunScreenDetailNilCallbackAndReopen(t *testing.T) {
 	calls := 0
 	if err := runScreenWithTheme(context.Background(), reopen, func(context.Context, string) ([]parse.Book, error) {
 		return []parse.Book{{ID: annaRef("42"), Title: "A title"}}, nil
-	}, func(context.Context, string) (parse.Detail, error) {
+	}, func(context.Context, source.Ref) (parse.Detail, error) {
 		calls++
 		return parse.Detail{Description: "Again"}, nil
 	}, false); err != nil {
