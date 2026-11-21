@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/curedbylethe/booxd/internal/cache"
 	"github.com/curedbylethe/booxd/internal/fetch"
@@ -221,7 +222,18 @@ func (t *text) UnmarshalJSON(b []byte) error {
 
 var tag = regexp.MustCompile(`<[^>]*>`)
 
+// display drops control characters so remote text cannot rewrite the terminal
+// when printed or drawn; every shown field passes through it.
+func display(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, s)
+}
+
 // oneLine strips HTML tags and entities and collapses whitespace.
 func oneLine(s string) string {
-	return strings.Join(strings.Fields(html.UnescapeString(tag.ReplaceAllString(s, " "))), " ")
+	return strings.Join(strings.Fields(display(html.UnescapeString(tag.ReplaceAllString(s, " ")))), " ")
 }

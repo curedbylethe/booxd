@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode"
 
 	"github.com/curedbylethe/booxd/internal/cache"
 	"github.com/curedbylethe/booxd/internal/config"
@@ -324,6 +325,23 @@ func TestZLibrarySearch(t *testing.T) {
 	}
 	if calls.Load() != 3 || cookie.Load() != true {
 		t.Fatalf("session: calls=%d cookie=%v; want two uncached requests with the session", calls.Load(), cookie.Load())
+	}
+}
+
+// A hostile response must not reach stdout with terminal control bytes.
+func TestZLibrarySearchStripsControlCharacters(t *testing.T) {
+	_, newClient, _ := zlibraryServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"success":1,"books":[{"id":5512,"hash":"a1b2c3","title":"T\u001b[2Jitle\nMore","author":"A\u001b7uthor","year":1969,"extension":"epub","filesizeString":"1.20 MB"}]}`)
+	})
+	code, stdout, stderr := runZLibrary(t, []string{"search", "--source", "zlibrary", "q"}, newClient)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr)
+	}
+	if i := strings.IndexFunc(stdout, func(r rune) bool { return unicode.IsControl(r) && r != '\t' && r != '\n' }); i >= 0 {
+		t.Fatalf("stdout carries control rune %q at %d: %q", stdout[i], i, stdout)
+	}
+	if want := "zlibrary:5512/a1b2c3\tT[2JitleMore\tA7uthor\t1969\tepub\t1.20 MB\n"; stdout != want {
+		t.Fatalf("stdout=%q want %q", stdout, want)
 	}
 }
 
