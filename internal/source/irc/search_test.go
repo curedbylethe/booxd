@@ -3,6 +3,8 @@ package irc
 import (
 	"context"
 	"errors"
+	"io"
+	"net"
 	"reflect"
 	"strings"
 	"testing"
@@ -157,5 +159,60 @@ func TestSearchCorruptArchive(t *testing.T) {
 	}
 	if n := f.releaseCount(); n != 1 {
 		t.Fatalf("ReleaseSearch calls = %d, want 1", n)
+	}
+}
+
+func TestSearchEarlyFallbackOffer(t *testing.T) {
+	f := newFakeClient("#ebooks")
+	data := zipFixture(t, lineA+"\n"+lineB+"\n")
+	f.send(dcc.Offer{From: "searchook", Name: "results.zip", Size: int64(len(data))})
+	s := testSearcher(f)
+	s.openOffer = pipeOpen(t, data)
+
+	// The fallback bot answers during the primary bot's window; the offer
+	// must not be discarded.
+	got, err := s.Search(context.Background(), "early")
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	want := []Book{bookA, bookB}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Search books = %+v, want %+v", got, want)
+	}
+}
+
+func TestSearchStalledStreamCancel(t *testing.T) {
+	f := newFakeClient("#ebooks")
+	s := testSearcher(f)
+	opened := make(chan struct{})
+	s.openOffer = func(context.Context, dcc.Offer) (io.ReadCloser, error) {
+		reader, _ := net.Pipe()
+		close(opened)
+		return reader, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := s.Search(ctx, "stall")
+		done <- err
+	}()
+
+	f.waitSays(t, 1)
+	f.send(dcc.Offer{From: "search", Name: "results.zip", Size: 1})
+	select {
+	case <-opened:
+	case <-time.After(2 * time.Second):
+		t.Fatal("offer never opened")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Search error = %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Search did not return after cancellation")
 	}
 }

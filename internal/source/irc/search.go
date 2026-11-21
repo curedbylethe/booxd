@@ -28,18 +28,18 @@ func (s *Searcher) Search(ctx context.Context, q string) ([]Book, error) {
 	if primary == "" {
 		primary = defaultSearchBot
 	}
-	names := []string{primary}
+	allNames := []string{primary}
 	if !strings.EqualFold(primary, fallbackSearchBot) {
-		names = append(names, fallbackSearchBot)
+		allNames = append(allNames, fallbackSearchBot)
 	}
 
-	for i, name := range names {
-		offer, err := s.awaitOffer(ctx, name)
+	for i := range allNames {
+		offer, err := s.awaitOffer(ctx, allNames)
 		if err != nil {
 			if err != errAwaitTimeout {
 				return nil, err // context cancellation
 			}
-			if i < len(names)-1 {
+			if i < len(allNames)-1 {
 				continue // Q-03: the fallback gets its own ZipWait window
 			}
 			break
@@ -50,24 +50,35 @@ func (s *Searcher) Search(ctx context.Context, q string) ([]Book, error) {
 			return nil, fmt.Errorf("source irc: search %q: open offer from %q: %w", q, offer.From, err)
 		}
 		defer func() { _ = conn.Close() }()
+		// The zip read blocks on the connection; close it when the context
+		// ends so a stalled sender cannot outlive the cancellation.
+		stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+		defer stop()
 		books, err := readOffer(conn, offer.Size)
 		if err != nil {
+			// Cancellation wins over the stream error the closed pipe
+			// reports, as in Fetch.
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
 			return nil, fmt.Errorf("source irc: search %q: %w", q, err)
 		}
 		return books, nil
 	}
 
-	last := names[len(names)-1]
+	last := allNames[len(allNames)-1]
 	return nil, fmt.Errorf(
 		"source irc: search %q: no results offer from %q (bot %q) within %s",
 		q, last, primary, s.ZipWait,
 	)
 }
 
-// awaitOffer waits for one offer from name within ZipWait. Offers from other
-// nicks are consumed and ignored; this is the only reader of DCC() during the
-// wait, so no goroutine outlives the call (G-09).
-func (s *Searcher) awaitOffer(ctx context.Context, name string) (dcc.Offer, error) {
+// awaitOffer waits for an offer from any of names within ZipWait. The
+// fallback bot's offer counts while the primary bot's window is still open:
+// discarding it would make every early fallback answer time out. Offers from
+// other nicks are consumed and ignored; this is the only reader of DCC()
+// during the wait, so no goroutine outlives the call (G-09).
+func (s *Searcher) awaitOffer(ctx context.Context, names []string) (dcc.Offer, error) {
 	offers := s.Client.DCC()
 	timer := time.NewTimer(s.ZipWait)
 	defer timer.Stop()
@@ -81,8 +92,10 @@ func (s *Searcher) awaitOffer(ctx context.Context, name string) (dcc.Offer, erro
 			if !ok {
 				return dcc.Offer{}, errAwaitTimeout // session ended
 			}
-			if strings.EqualFold(offer.From, name) {
-				return offer, nil
+			for _, name := range names {
+				if strings.EqualFold(offer.From, name) {
+					return offer, nil
+				}
 			}
 		}
 	}
