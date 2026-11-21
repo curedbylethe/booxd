@@ -280,13 +280,13 @@ func newTUIZLibrary(cfg config.Config, store *cache.Store, newClient clientFunc)
 	return tuiZLibrary{cfg: cfg, s: s, client: client, session: session, err: err}
 }
 
-func (z tuiZLibrary) search(ctx context.Context, query string) ([]parse.Book, error) {
+func (z tuiZLibrary) search(ctx context.Context, query string, page int) ([]parse.Book, error) {
 	if z.err != nil {
 		return nil, z.err
 	}
 	ctx, cancel := context.WithTimeout(ctx, z.cfg.RequestTimeout)
 	defer cancel()
-	books, err := z.s.Search(ctx, query, 1)
+	books, err := z.s.Search(ctx, query, page)
 	if err != nil {
 		return nil, errors.New(zlibraryMessage(err))
 	}

@@ -239,11 +239,11 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 		client := newClient(cfg, nil, nil)
 		search := newSearcher(cfg, client, store, resolve, nil)
 		zlib := newTUIZLibrary(cfg, store, newClient)
-		searchFunc := func(ctx context.Context, from source.Name, query string) ([]parse.Book, error) {
+		searchFunc := func(ctx context.Context, from source.Name, query string, page int) ([]parse.Book, error) {
 			if from == source.ZLibrary {
-				return zlib.search(ctx, query)
+				return zlib.search(ctx, query, page)
 			}
-			outcome, err := search.search(ctx, query, searchOptions{Page: 1, MaxAge: cache.DefaultTTL})
+			outcome, err := search.search(ctx, query, searchOptions{Page: page, MaxAge: cache.DefaultTTL})
 			return outcome.Books, err
 		}
 		detailClient := func(config.Config, io.Writer, http.CookieJar) *fetch.Client { return client }

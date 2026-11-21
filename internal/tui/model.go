@@ -23,6 +23,7 @@ type model struct {
 	query        string
 	books        []parse.Book
 	searchSeq    int
+	page         int // the page whose rows are on screen
 	source       source.Name
 	book         parse.Book
 	download     downloadState
@@ -274,14 +275,14 @@ func scrollDetail(m model, delta int) (model, action) {
 
 // applySearch applies the result of search seq; a result for an older query or
 // source is dropped, since a newer search owns the screen.
-func applySearch(m model, seq int, books []parse.Book, err error) (model, bool) {
+func applySearch(m model, seq, page int, books []parse.Book, err error) (model, bool) {
 	if seq != m.searchSeq {
 		return m, false
 	}
-	return applyResults(m, books, err), true
+	return applyResults(m, page, books, err), true
 }
 
-func applyResults(m model, books []parse.Book, err error) model {
+func applyResults(m model, page int, books []parse.Book, err error) model {
 	if err != nil {
 		m.status = err.Error()
 		m.statusErr = true
@@ -289,6 +290,7 @@ func applyResults(m model, books []parse.Book, err error) model {
 	}
 	m.statusErr = false
 	m.books = books
+	m.page = page
 	m.selected = 0
 	m.offset = 0
 	if len(books) == 0 {

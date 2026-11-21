@@ -141,7 +141,7 @@ func TestVisibleOffsetResetsWhenAllRowsFit(t *testing.T) {
 func TestApplyResultsFailureKeepsRows(t *testing.T) {
 	old := []parse.Book{{ID: annaRef("old")}}
 	m := model{view: stateResults, books: old, selected: 0}
-	m = applyResults(m, []parse.Book{{ID: annaRef("new")}}, errors.New("offline"))
+	m = applyResults(m, 1, []parse.Book{{ID: annaRef("new")}}, errors.New("offline"))
 	if m.books[0].ID != annaRef("old") || m.status != "offline" {
 		t.Fatalf("got books=%v status=%q", m.books, m.status)
 	}
@@ -173,7 +173,7 @@ func TestTabSwitchClearsStaleResults(t *testing.T) {
 func TestTabOnQueryScreenDropsInFlightSearch(t *testing.T) {
 	m := model{view: stateQuery, searchSeq: 1, query: "q", status: "…"}
 	m, _ = handleKey(m, tcell.NewEventKey(tcell.KeyTab, 0, tcell.ModNone))
-	m, applied := applySearch(m, 1, []parse.Book{{ID: annaRef("stale")}}, nil)
+	m, applied := applySearch(m, 1, 1, []parse.Book{{ID: annaRef("stale")}}, nil)
 	if applied || m.books != nil {
 		t.Fatalf("anna result applied after switching source: applied=%t books=%v", applied, m.books)
 	}
