@@ -82,7 +82,7 @@ See [Termux setup](docs/termux.md) for Boox details. See [CONTRIBUTING.md](CONTR
    booxd get --cookies cookies.txt --open BOOK_ID
    ```
 
-`get` needs a Netscape cookie file from a signed-in session; booxd never obtains one. `--open` works on Termux / Android only.
+`get` needs a Netscape cookie file from a signed-in session; booxd never obtains one. `--open` works on Termux / Android only. An interrupted download resumes only when the server identified the file with a strong `ETag` or `Last-Modified` header; otherwise it restarts.
 
 ![booxd book details in the terminal](docs/images/tui-detail.png)
 
@@ -205,6 +205,9 @@ Export the session file from a browser where you are signed in. booxd never sign
 | `session rejected: ...; supply a fresh session file` | The session expired or was signed out. Export a new cookie file. |
 | `download quota exhausted: ...` | The account reached its download limit. Wait for the limit to reset; booxd does not retry. |
 | `host is challenging automated requests` | The host shows a browser check. booxd does not retry; try later or choose another host. |
+| `zlibrary: host did not answer: <host>` | The Z-Library host timed out or refused the connection. Check the network and `base_url`, then try again. In the TUI, the message shows on the status line. |
+| `zlibrary: download link expired or refused (status N); run get again` | The host rejected the download link with status 401, 403, 404, or 410. Run `get` again for a fresh link. In the TUI, the download row shows `failed`; press `d` again. |
+| `down: server sent a web page or an empty body, not a book` | The server answered with a web page, such as a sign-in page, or with nothing. booxd saves no file. Check the session or cookie file, then try again. |
 | `--mirror applies to anna only` | Remove Anna-only flags when you use `--source zlibrary` or a `zlibrary:` ID. |
 
 ```sh

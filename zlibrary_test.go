@@ -403,6 +403,143 @@ func TestZLibraryGetHidesLinkOnTransportError(t *testing.T) {
 	}
 }
 
+// zlibraryLinkServer serves the detail and a resolved link carrying linkToken;
+// dl answers the transfer.
+func zlibraryLinkServer(t *testing.T, dl http.HandlerFunc) clientFunc {
+	t.Helper()
+	var srv *httptest.Server
+	srv, newClient, _ := zlibraryServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/eapi/book/5512/a1b2c3":
+			_, _ = io.WriteString(w, zlibDetailJSON)
+		case "/eapi/book/5512/a1b2c3/file":
+			_, _ = fmt.Fprintf(w, `{"success":1,"file":{"allowDownload":true,"downloadLink":"%s/dl/5512?token=%s"}}`, srv.URL, linkToken)
+		case "/dl/5512":
+			dl(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	t.Setenv("BOOXD_ZLIBRARY_SESSION_FILE", writeSessionFile(t, "remix_userid", "remix_userkey"))
+	return newClient
+}
+
+func TestZLibraryGetTransferFailures(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		dl   http.HandlerFunc
+		want string
+	}{
+		{"401", statusHandler(http.StatusUnauthorized), "booxd: zlibrary: download link expired or refused (status 401); run get again\n"},
+		{"403", statusHandler(http.StatusForbidden), "booxd: zlibrary: download link expired or refused (status 403); run get again\n"},
+		{"404", statusHandler(http.StatusNotFound), "booxd: zlibrary: download link expired or refused (status 404); run get again\n"},
+		{"410", statusHandler(http.StatusGone), "booxd: zlibrary: download link expired or refused (status 410); run get again\n"},
+		{"web page", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = io.WriteString(w, "<html><body>Sign in "+linkToken+"</body></html>")
+		}, "booxd: down: server sent a web page or an empty body, not a book\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			newClient := zlibraryLinkServer(t, tc.dl)
+			code, stdout, stderr := runZLibrary(t, []string{"get", zlibRef}, newClient)
+			if code != 1 || stdout != "" || stderr != tc.want {
+				t.Fatalf("code=%d stdout=%q stderr=%q want %q", code, stdout, stderr, tc.want)
+			}
+			if entries, err := os.ReadDir(os.Getenv("BOOXD_DOWNLOAD_DIR")); err != nil || len(entries) != 0 {
+				t.Fatalf("download dir entries=%v err=%v, want empty", entries, err)
+			}
+			// The TUI row reads "failed": the error wraps none of its outcomes.
+			opts, _, _ := runTui(t, []string{"tui"}, newClient)
+			_, err := opts.Download(context.Background(), source.Ref{Source: source.ZLibrary, ID: "5512", Hash: "a1b2c3"}, func(int64, int64) {})
+			for _, outcome := range []error{tui.ErrExists, tui.ErrSessionExpired, tui.ErrQuota, tui.ErrFailed, context.Canceled} {
+				if err == nil || errors.Is(err, outcome) || strings.Contains(err.Error(), linkToken) {
+					t.Fatalf("tui err=%v", err)
+				}
+			}
+		})
+	}
+}
+
+func statusHandler(code int) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) { http.Error(w, linkToken, code) }
+}
+
+func TestZLibraryHostUnavailable(t *testing.T) {
+	withGetEnvironment(t, t.TempDir())
+	// Port 1 refuses the connection before any request reaches a host.
+	t.Setenv("BOOXD_ZLIBRARY_BASE_URL", "https://127.0.0.1:1/?token="+linkToken)
+	t.Setenv("BOOXD_ZLIBRARY_SESSION_FILE", writeSessionFile(t, "remix_userid", "remix_userkey"))
+	const want = "zlibrary: host did not answer: 127.0.0.1:1"
+	for _, args := range [][]string{
+		{"search", "--source", "zlibrary", "q"},
+		{"show", zlibRef},
+		{"get", zlibRef},
+	} {
+		t.Run(args[0], func(t *testing.T) {
+			code, stdout, stderr := runZLibrary(t, args, newFetchClient)
+			if code != 1 || stdout != "" || stderr != "booxd: "+want+"\n" {
+				t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
+			}
+		})
+	}
+	opts, code, _ := runTui(t, []string{"tui"}, newFetchClient)
+	if code != 0 {
+		t.Fatalf("tui code=%d", code)
+	}
+	ctx := context.Background()
+	if _, err := opts.Search(ctx, source.ZLibrary, "q"); err == nil || err.Error() != want {
+		t.Fatalf("tui search error=%v, want %q", err, want)
+	}
+	if _, err := opts.Detail(ctx, source.Ref{Source: source.ZLibrary, ID: "5512", Hash: "a1b2c3"}); err == nil || err.Error() != want {
+		t.Fatalf("tui detail error=%v, want %q", err, want)
+	}
+}
+
+func TestTuiZLibraryDownloadCancel(t *testing.T) {
+	ref := source.Ref{Source: source.ZLibrary, ID: "5512", Hash: "a1b2c3"}
+	for _, step := range []string{"resolve", "transfer"} {
+		t.Run(step, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			// The handler cancels the download, then holds the request open until the client hangs up.
+			hold := func(w http.ResponseWriter, r *http.Request) {
+				cancel()
+				select {
+				case <-r.Context().Done():
+				case <-time.After(5 * time.Second):
+				}
+			}
+			var srv *httptest.Server
+			srv, newClient, _ := zlibraryServer(t, func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/eapi/book/5512/a1b2c3":
+					_, _ = io.WriteString(w, zlibDetailJSON)
+				case "/eapi/book/5512/a1b2c3/file":
+					if step == "resolve" {
+						hold(w, r)
+						return
+					}
+					_, _ = fmt.Fprintf(w, `{"success":1,"file":{"allowDownload":true,"downloadLink":"%s/dl/5512?token=%s"}}`, srv.URL, linkToken)
+				case "/dl/5512":
+					w.Header().Set("Content-Length", "1000")
+					_, _ = io.WriteString(w, "partial book")
+					w.(http.Flusher).Flush()
+					hold(w, r)
+				}
+			})
+			t.Setenv("BOOXD_ZLIBRARY_SESSION_FILE", writeSessionFile(t, "remix_userid", "remix_userkey"))
+			opts, code, _ := runTui(t, []string{"tui"}, newClient)
+			if code != 0 {
+				t.Fatalf("code=%d", code)
+			}
+			_, err := opts.Download(ctx, ref, func(int64, int64) {})
+			if !errors.Is(err, context.Canceled) || strings.Contains(err.Error(), linkToken) {
+				t.Fatalf("err=%v, want context.Canceled without the link", err)
+			}
+		})
+	}
+}
+
 // captureTUI replaces the terminal interface and returns the options the tui
 // command built.
 func captureTUI(t *testing.T) *tui.Options {
