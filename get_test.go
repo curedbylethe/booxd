@@ -385,3 +385,32 @@ func TestGetOpen(t *testing.T) {
 		})
 	}
 }
+
+func TestGetRefusesUnavailableSource(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	resolve := func(context.Context, config.Config, string, *fetch.Client) (string, error) {
+		t.Fatal("resolve called for an unavailable source")
+		return "", nil
+	}
+	newClient := func(config.Config, io.Writer, http.CookieJar) *fetch.Client {
+		t.Fatal("client created for an unavailable source")
+		return nil
+	}
+	code := run([]string{"get", "zlibrary:1234/ab12cd"}, &stdout, &stderr, resolve, newClient)
+	if code != 2 || stderr.String() != "booxd: zlibrary books are not available yet\n" {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+}
+
+func TestGetQualifiedAnnaWithoutCookies(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	resolve := func(_ context.Context, _ config.Config, override string, _ *fetch.Client) (string, error) {
+		return override, nil
+	}
+	newClient := func(config.Config, io.Writer, http.CookieJar) *fetch.Client { return fetch.New() }
+	code := run([]string{"get", "--mirror", "https://mirror.test", "anna:36451"}, &stdout, &stderr, resolve, newClient)
+	want := "mirror: https://mirror.test\nbooxd: downloads need a signed-in session; pass --cookies cookies.txt: https://mirror.test/books/36451\n"
+	if code != 2 || stderr.String() != want {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+}

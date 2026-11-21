@@ -67,7 +67,7 @@ Put every flag before the book ID:
 booxd get --cookies cookies.txt --open BOOK_ID
 ```
 
-Replace BOOK_ID with the chosen result's ID. After saving the file or finding it
+Replace BOOK_ID with the chosen result's ID (`36451`, `36451-the-hobbit`, or `anna:36451`). After saving the file or finding it
 already downloaded, booxd calls `termux-open`. It sends Android an ACTION_VIEW
 intent with a content URI and the extension's MIME type, such as
 `application/epub+zip`. Android selects the default reader for that file type.
