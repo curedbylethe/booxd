@@ -392,6 +392,207 @@ func TestZLibrarySearchEmpty(t *testing.T) {
 	}
 }
 
+// A filtered search reaches the EAPI as decoded form fields, not as a flag in
+// the command line only. url.Values.Encode sorts keys and values, so the
+// comparison is independent of the order r.PostForm returned them in.
+func TestZLibrarySearchFilters(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		args     []string
+		wantForm url.Values
+	}{
+		{
+			name: "languages and format",
+			args: []string{"search", "--source", "zlibrary", "--language", "en", "--language", "fa", "--format", "epub", "left", "hand"},
+			wantForm: url.Values{
+				"message":      {"left hand"},
+				"page":         {"1"},
+				"limit":        {"25"},
+				"languages[]":  {"english", "persian"},
+				"extensions[]": {"EPUB"},
+			},
+		},
+		{
+			name: "page keeps filters",
+			args: []string{"search", "--source", "zlibrary", "--page", "2", "--language", "en", "q"},
+			wantForm: url.Values{
+				"message":     {"q"},
+				"page":        {"2"},
+				"limit":       {"25"},
+				"languages[]": {"english"},
+			},
+		},
+		{
+			name: "deduplicates repeated flags",
+			args: []string{"search", "--source", "zlibrary", "--language", "english", "--language", "en", "--format", "epub", "--format", "EPUB", "q"},
+			wantForm: url.Values{
+				"message":      {"q"},
+				"page":         {"1"},
+				"limit":        {"25"},
+				"languages[]":  {"english"},
+				"extensions[]": {"EPUB"},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var form atomic.Value
+			_, newClient, _ := zlibraryServer(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost || r.URL.Path != "/eapi/book/search" {
+					http.NotFound(w, r)
+					return
+				}
+				_ = r.ParseForm()
+				form.Store(r.PostForm)
+				_, _ = io.WriteString(w, zlibSearchJSON)
+			})
+			code, stdout, stderr := runZLibrary(t, tc.args, newClient)
+			if code != 0 || stderr != "" || !strings.HasPrefix(stdout, zlibRef+"\t") {
+				t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
+			}
+			got, ok := form.Load().(url.Values)
+			if !ok {
+				t.Fatal("no search request reached the server")
+			}
+			if got.Encode() != tc.wantForm.Encode() {
+				t.Fatalf("form=%v want %v", got, tc.wantForm)
+			}
+		})
+	}
+}
+
+// Validation runs before a client is built: noNetwork fails on any request.
+func TestZLibrarySearchRejectsUnknownFilters(t *testing.T) {
+	withGetEnvironment(t, t.TempDir())
+	t.Setenv("BOOXD_ZLIBRARY_BASE_URL", "https://example.invalid")
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"search", "--source", "zlibrary", "--language", "klingon", "q"}, "booxd: unknown language \"klingon\"\n"},
+		{[]string{"search", "--source", "zlibrary", "--language", "en,fa", "q"}, "booxd: unknown language \"en,fa\"\n"},
+		{[]string{"search", "--source", "zlibrary", "--format", "tar", "q"}, "booxd: unknown format \"tar\"\n"},
+	} {
+		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
+			resolve, newClient := noNetwork(t)
+			var stdout, stderr bytes.Buffer
+			code := run(tc.args, &stdout, &stderr, resolve, newClient)
+			if code != 2 || stderr.String() != tc.want {
+				t.Fatalf("code=%d stderr=%q want %q", code, stderr.String(), tc.want)
+			}
+		})
+	}
+}
+
+// Anna rejects the flags before dispatch: no client, resolver or HTTP request.
+func TestSourceAnnaRefusesZLibraryFlags(t *testing.T) {
+	_, serverClient, calls := zlibraryServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("anna search contacted the zlibrary server")
+	})
+	for _, tc := range []struct {
+		flag string
+		args []string
+	}{
+		{"language", []string{"search", "--source", "anna", "--language", "en", "q"}},
+		{"format", []string{"search", "--format", "epub", "q"}},
+	} {
+		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
+			resolve, _ := noNetwork(t)
+			var stdout, stderr bytes.Buffer
+			code := run(tc.args, &stdout, &stderr, resolve, serverClient)
+			if want := "booxd: --" + tc.flag + " applies to zlibrary only\n"; code != 2 || stderr.String() != want {
+				t.Fatalf("code=%d stderr=%q want %q", code, stderr.String(), want)
+			}
+			if calls.Load() != 0 {
+				t.Fatalf("anna made %d HTTP requests", calls.Load())
+			}
+		})
+	}
+}
+
+// Anna search without filters keeps its existing request shape.
+func TestSourceAnnaSearchUnchangedByFilters(t *testing.T) {
+	withGetEnvironment(t, t.TempDir())
+	var gotURL string
+	resolve := func(context.Context, config.Config, string, *fetch.Client) (string, error) {
+		return "https://mirror.test", nil
+	}
+	newClient := func(config.Config, io.Writer, http.CookieJar) *fetch.Client {
+		return fetch.New(fetch.WithLookup(func(_ context.Context, rawURL string) (int, []byte, bool) {
+			gotURL = rawURL
+			return 200, []byte("<div>Showing 0 results on this page</div>"), true
+		}))
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"search", "q"}, &stdout, &stderr, resolve, newClient)
+	if code != 0 || stderr.String() != "mirror: https://mirror.test\nno results\n" {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if gotURL != "https://mirror.test/search?q=q" {
+		t.Fatalf("anna URL = %q", gotURL)
+	}
+}
+
+// Different filters are different cache identities; an authenticated response
+// is never cached. All runs share one BOOXD_CACHE_DIR until the session switch.
+func TestZLibrarySearchFilterCacheIsolation(t *testing.T) {
+	_, newClient, calls := zlibraryServer(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, zlibSearchJSON)
+	})
+	withLang := func(lang string) []string {
+		return []string{"search", "--source", "zlibrary", "--language", lang, "q"}
+	}
+	runOK := func(args []string) {
+		t.Helper()
+		if code, _, stderr := runZLibrary(t, args, newClient); code != 0 {
+			t.Fatalf("%v: code=%d stderr=%q", args, code, stderr)
+		}
+	}
+	runOK(withLang("en"))
+	runOK(withLang("en"))
+	if calls.Load() != 1 {
+		t.Fatalf("same filters: calls=%d want 1", calls.Load())
+	}
+	runOK(withLang("fa"))
+	runOK(withLang("fa"))
+	if calls.Load() != 2 {
+		t.Fatalf("different filters: calls=%d want 2", calls.Load())
+	}
+
+	t.Setenv("BOOXD_ZLIBRARY_SESSION_FILE", writeSessionFile(t, "remix_userid", "remix_userkey"))
+	t.Setenv("BOOXD_CACHE_DIR", t.TempDir())
+	runOK(withLang("en"))
+	runOK(withLang("en"))
+	if calls.Load() != 4 {
+		t.Fatalf("session: calls=%d want 4", calls.Load())
+	}
+}
+
+// An empty filtered result is still not cached: a second run refetches and no
+// entry exists under the filtered key.
+func TestZLibrarySearchFilteredEmptyNotCached(t *testing.T) {
+	_, newClient, calls := zlibraryServer(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"success":1,"books":[]}`)
+	})
+	args := []string{"search", "--source", "zlibrary", "--language", "en", "q"}
+	for i := 1; i <= 2; i++ {
+		code, stdout, stderr := runZLibrary(t, args, newClient)
+		if code != 0 || stdout != "" || stderr != "no results\n" {
+			t.Fatalf("run %d: code=%d stdout=%q stderr=%q", i, code, stdout, stderr)
+		}
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("empty result was cached: calls=%d want 2", calls.Load())
+	}
+	dir, err := cache.Path(os.Getenv("BOOXD_CACHE_DIR"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := cache.SearchKey(source.ZLibrary, "q", source.SearchOptions{Page: 1, Languages: []string{"english"}})
+	if _, ok := cache.Open(dir).Get(key); ok {
+		t.Fatal("empty filtered result created a cache entry")
+	}
+}
+
 func TestZLibraryShow(t *testing.T) {
 	var path atomic.Value
 	_, newClient, _ := zlibraryServer(t, func(w http.ResponseWriter, r *http.Request) {

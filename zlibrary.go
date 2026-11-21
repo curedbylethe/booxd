@@ -49,6 +49,24 @@ func annaOnly(flags *flag.FlagSet, stderr io.Writer, names ...string) bool {
 	return true
 }
 
+// zlibraryOnly reports false, after naming the flag, when a Z-Library-only
+// filter flag was set on another source.
+func zlibraryOnly(flags *flag.FlagSet, stderr io.Writer, names ...string) bool {
+	set := ""
+	flags.Visit(func(f *flag.Flag) {
+		for _, name := range names {
+			if set == "" && f.Name == name {
+				set = name
+			}
+		}
+	})
+	if set != "" {
+		_, _ = fmt.Fprintf(stderr, "booxd: --%s applies to zlibrary only\n", set)
+		return false
+	}
+	return true
+}
+
 // originJar scopes a loaded cookie jar to the [zlibrary] base URL: the file's
 // Domain field may name a whole dot-domain, and net/http's jar ignores ports,
 // so the raw jar would leak session cookies to sibling hosts on redirects.
@@ -165,7 +183,7 @@ func zlibraryFailure(stderr io.Writer, err error) int {
 	return 1
 }
 
-func searchZLibrary(cfg config.Config, store *cache.Store, query string, page int, log, stdout, stderr io.Writer, newClient clientFunc) int {
+func searchZLibrary(cfg config.Config, store *cache.Store, query string, opts source.SearchOptions, log, stdout, stderr io.Writer, newClient clientFunc) int {
 	s, _, session, err := newZLibrary(cfg, false, log, newClient)
 	if err != nil {
 		return zlibraryPrerequisite(stderr, err)
@@ -173,7 +191,7 @@ func searchZLibrary(cfg config.Config, store *cache.Store, query string, page in
 	if !session {
 		s.Store = store
 	}
-	books, err := s.Search(context.Background(), query, source.SearchOptions{Page: page})
+	books, err := s.Search(context.Background(), query, opts)
 	if err != nil {
 		if len(books) == 0 {
 			return zlibraryFailure(stderr, err)
