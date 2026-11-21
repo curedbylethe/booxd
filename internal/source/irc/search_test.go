@@ -3,6 +3,7 @@ package irc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"reflect"
@@ -36,8 +37,8 @@ func TestSearchHappyPath(t *testing.T) {
 	if !reflect.DeepEqual(targets, []string{"#ebooks"}) {
 		t.Fatalf("Say targets = %q, want %q", targets, "#ebooks")
 	}
-	if n := f.releaseCount(); n != 1 {
-		t.Fatalf("ReleaseSearch calls = %d, want 1", n)
+	if n := f.releaseCount(); n != 0 {
+		t.Fatalf("ReleaseSearch calls = %d, want 0", n)
 	}
 }
 
@@ -113,8 +114,8 @@ func TestSearchSayError(t *testing.T) {
 	if !strings.Contains(err.Error(), "pending") {
 		t.Fatalf("error %q does not name the query", err)
 	}
-	if n := f.releaseCount(); n != 1 {
-		t.Fatalf("ReleaseSearch calls = %d, want 1", n)
+	if n := f.releaseCount(); n != 0 {
+		t.Fatalf("ReleaseSearch calls = %d, want 0", n)
 	}
 }
 
@@ -157,8 +158,8 @@ func TestSearchCorruptArchive(t *testing.T) {
 	if _, err := s.Search(context.Background(), "corrupt"); err == nil {
 		t.Fatal("Search error = nil, want corrupt archive error")
 	}
-	if n := f.releaseCount(); n != 1 {
-		t.Fatalf("ReleaseSearch calls = %d, want 1", n)
+	if n := f.releaseCount(); n != 0 {
+		t.Fatalf("ReleaseSearch calls = %d, want 0", n)
 	}
 }
 
@@ -214,5 +215,45 @@ func TestSearchStalledStreamCancel(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Search did not return after cancellation")
+	}
+}
+
+func TestSearchRejectedSendKeepsHeldSlot(t *testing.T) {
+	f := newFakeClient("#ebooks")
+	s := testSearcher(f)
+	s.ZipWait = 2 * time.Second
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// One search in flight, holding the slot, with nothing answering it.
+	done := make(chan error, 1)
+	go func() {
+		_, err := s.Search(ctx, "held")
+		done <- err
+	}()
+	f.waitSays(t, 1)
+
+	// A second call rejected by the transport's gate must not free the
+	// first call's slot.
+	f.setSayErr(fmt.Errorf("%w: waiting on #ebooks", ircreal.ErrSearchPending))
+	if _, err := s.Search(context.Background(), "second"); err == nil {
+		t.Fatal("second Search: expected a send rejection")
+	}
+	if n := f.releaseCount(); n != 0 {
+		t.Fatalf("ReleaseSearch calls = %d, want 0 while the first search still holds the slot", n)
+	}
+
+	// The holder releases its own slot when it gives up.
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("first Search error = %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("first Search did not finish")
+	}
+	if n := f.releaseCount(); n != 1 {
+		t.Fatalf("ReleaseSearch calls = %d, want 1 after the holder returned", n)
 	}
 }

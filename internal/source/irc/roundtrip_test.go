@@ -74,8 +74,10 @@ func TestRoundTrip(t *testing.T) {
 	if want := []string{"#ebooks", "#ebooks"}; !reflect.DeepEqual(targets, want) {
 		t.Fatalf("Say targets = %q, want %q", targets, want)
 	}
-	if n := f.releaseCount(); n != 2 {
-		t.Fatalf("ReleaseSearch calls = %d, want 2", n)
+	// The transport frees the slot when each offer arrives; neither call
+	// releases a slot it no longer owns.
+	if n := f.releaseCount(); n != 0 {
+		t.Fatalf("ReleaseSearch calls = %d, want 0", n)
 	}
 }
 
