@@ -41,7 +41,7 @@ func (s *Searcher) Fetch(ctx context.Context, b Book, dstPath string) (int64, er
 	if err != nil {
 		return 0, fmt.Errorf("source irc: fetch %q: open offer from %q: %w", b.ID, offer.From, err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
 

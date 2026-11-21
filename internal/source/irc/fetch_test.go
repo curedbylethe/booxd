@@ -229,7 +229,7 @@ func blockedPipeOpen(data []byte) (func(context.Context, dcc.Offer) (io.ReadClos
 	opener := func(context.Context, dcc.Offer) (io.ReadCloser, error) {
 		reader, writer := net.Pipe()
 		go func() {
-			defer writer.Close()
+			defer func() { _ = writer.Close() }()
 			_, _ = writer.Write(data)
 			<-release
 		}()

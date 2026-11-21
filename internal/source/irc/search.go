@@ -49,7 +49,7 @@ func (s *Searcher) Search(ctx context.Context, q string) ([]Book, error) {
 		if err != nil {
 			return nil, fmt.Errorf("source irc: search %q: open offer from %q: %w", q, offer.From, err)
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		books, err := readOffer(conn, offer.Size)
 		if err != nil {
 			return nil, fmt.Errorf("source irc: search %q: %w", q, err)
