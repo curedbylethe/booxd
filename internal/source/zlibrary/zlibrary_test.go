@@ -98,7 +98,7 @@ func TestSearchFormAndRefs(t *testing.T) {
 		t.Fatalf("form = %v", form)
 	}
 	want := []source.Book{
-		{Ref: leGuin, Title: "The Left Hand of Darkness", Author: "Ursula K. Le Guin", Year: "1969", Format: "epub", Size: "1.20 MB", Publisher: "Ace Books", Language: "english"},
+		{Ref: leGuin, Title: "The Left Hand of Darkness", Author: "Ursula K. Le Guin", Year: "1969", Format: "epub", Size: "1.20 MB", Publisher: "Ace Books", Language: "english", ISBN: "9780441478125"},
 		{Ref: kindred, Title: "Kindred", Author: "Octavia E. Butler", Year: "1979", Format: "PDF", Size: "3.05 MB", Language: "english"},
 	}
 	if len(books) != len(want) {
@@ -395,5 +395,55 @@ func TestCacheSkipsEmptySearch(t *testing.T) {
 	}
 	if calls.Load() != 2 || cacheFiles(t, dir) != 0 {
 		t.Fatalf("calls = %d, cache files = %d; want 2 live calls and no writes", calls.Load(), cacheFiles(t, dir))
+	}
+}
+
+func TestUnavailableNamesOnlyHost(t *testing.T) {
+	srv := httptest.NewTLSServer(http.NotFoundHandler())
+	base, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.Close() // every request is now refused
+	s, err := New(fetch.New(fetch.WithInterval(0)), base, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	calls := map[string]func() error{
+		"Search": func() error { _, err := s.Search(ctx, "secret-query-77", 1); return err },
+		"Detail": func() error { _, err := s.Detail(ctx, leGuin); return err },
+		"ResolveDownload": func() error {
+			_, err := s.ResolveDownload(ctx, leGuin)
+			return err
+		},
+	}
+	for name, call := range calls {
+		err := call()
+		if !errors.Is(err, ErrUnavailable) {
+			t.Fatalf("%s = %v, want ErrUnavailable", name, err)
+		}
+		if msg := err.Error(); msg != ErrUnavailable.Error()+": "+base.Host {
+			t.Errorf("%s message = %q, want host only", name, msg)
+		}
+	}
+}
+
+func TestUnavailableOnDeadline(t *testing.T) {
+	s, _ := serve(t, false, reply(200, fixture(t, "search.json")))
+	ctx, cancel := context.WithTimeout(context.Background(), -time.Second)
+	defer cancel()
+	if _, err := s.Search(ctx, "x", 1); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("Search = %v, want ErrUnavailable", err)
+	}
+}
+
+func TestCancelStaysCanceled(t *testing.T) {
+	s, _ := serve(t, false, reply(200, fixture(t, "search.json")))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := s.Search(ctx, "x", 1)
+	if !errors.Is(err, context.Canceled) || errors.Is(err, ErrUnavailable) {
+		t.Fatalf("Search = %v, want context.Canceled", err)
 	}
 }
