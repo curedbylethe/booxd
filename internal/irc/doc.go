@@ -3,4 +3,6 @@
 //
 // Hostname resolution on Android arm64 needs the resolver hook that
 // internal/fetch owns, so a device build must pass a DialFunc.
+// Call ReleaseSearch to free the in-flight slot when a search ends without a
+// bot reply.
 package irc
