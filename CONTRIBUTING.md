@@ -1,6 +1,6 @@
 # Contributing
 
-booxd is a Go CLI/TUI for Anna's Archive, with opt-in Z-Library support in the CLI. Read [AGENTS.md](AGENTS.md) for repository rules before changing code.
+booxd is a Go CLI/TUI for Anna's Archive, with opt-in Z-Library support in the CLI and an experimental IRC search at `search --source irc`. Read [AGENTS.md](AGENTS.md) for repository rules before changing code.
 
 ## Prerequisites
 

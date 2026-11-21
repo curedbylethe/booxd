@@ -165,11 +165,13 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 		if !ok {
 			return 2
 		}
-		if from == source.IRC {
-			_, _ = fmt.Fprintf(stderr, "booxd: %s books are not available yet\n", from)
-			return 2
+		if from == source.IRC || from == source.ZLibrary {
+			if !annaOnly(flags, stderr, "mirror", "dump-html", "max-age") {
+				return 2
+			}
 		}
-		if from == source.ZLibrary && !annaOnly(flags, stderr, "mirror", "dump-html", "max-age") {
+		if from == source.IRC && *page != 1 {
+			_, _ = fmt.Fprintln(stderr, "booxd: --page applies to anna and zlibrary only")
 			return 2
 		}
 		if from != source.ZLibrary && !zlibraryOnly(flags, stderr, "language", "format") {
@@ -200,6 +202,9 @@ func run(args []string, stdout, stderr io.Writer, resolve resolveFunc, newClient
 		var log io.Writer
 		if *verbose {
 			log = stderr
+		}
+		if from == source.IRC {
+			return searchIRC(cfg, query, log, stdout, stderr)
 		}
 		if from == source.ZLibrary {
 			if *noCache {
