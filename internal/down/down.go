@@ -98,9 +98,10 @@ func Download(ctx context.Context, client *fetch.Client, req Request) (string, e
 		}
 		meta := part + ".meta"
 		validator := validatorOf(stream.Header)
-		// A partial resumes only against the validator and total it was written
-		// with; otherwise the discovery response restarts the file from zero.
-		if have > 0 && !resumable(meta, validator, stream.Header.Get("Content-Length")) {
+		// A partial resumes only against the resource, validator and total it
+		// was written with; otherwise the discovery response restarts the file
+		// from zero.
+		if have > 0 && !resumable(meta, validator, stream.Header.Get("Content-Length"), identityOf(finalURL)) {
 			have = 0
 		}
 		if have > 0 {
@@ -217,7 +218,7 @@ func Download(ctx context.Context, client *fetch.Client, req Request) (string, e
 			}
 		}
 		if stream.StatusCode == http.StatusOK {
-			if err := os.WriteFile(meta, []byte(validatorOf(stream.Header)+"\n"+expected+"\n"), 0o644); err != nil {
+			if err := os.WriteFile(meta, []byte(validatorOf(stream.Header)+"\n"+expected+"\n"+identityOf(finalURL)+"\n"), 0o644); err != nil {
 				_ = file.Close()
 				_ = stream.Body.Close()
 				return "", err
@@ -297,15 +298,27 @@ func validatorOf(header http.Header) string {
 	return header.Get("Last-Modified")
 }
 
-// resumable reports whether the sidecar at meta matches validator and the
-// Content-Length length of the current full response.
-func resumable(meta, validator, length string) bool {
+// identityOf names the resource a validator belongs to: ETags and
+// Last-Modified only hold within one URL, and a signed link varies only its
+// query.
+func identityOf(u *url.URL) string {
+	return u.Host + u.EscapedPath()
+}
+
+// resumable reports whether the sidecar at meta matches validator, identity
+// and the Content-Length length of the current full response. A sidecar with
+// no identity line predates the binding and never matches.
+func resumable(meta, validator, length, identity string) bool {
 	data, err := os.ReadFile(meta)
 	if err != nil {
 		return false
 	}
-	stored, total, _ := strings.Cut(strings.TrimSuffix(string(data), "\n"), "\n")
-	return stored != "" && stored == validator && (total == "" || length == "" || total == length)
+	parts := strings.SplitN(strings.TrimSuffix(string(data), "\n"), "\n", 3)
+	if len(parts) < 3 {
+		return false
+	}
+	stored, total, storedIdentity := parts[0], parts[1], parts[2]
+	return stored != "" && stored == validator && storedIdentity == identity && (total == "" || length == "" || total == length)
 }
 
 func removePart(part string) {

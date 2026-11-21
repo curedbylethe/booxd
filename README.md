@@ -82,7 +82,7 @@ See [Termux setup](docs/termux.md) for Boox details. See [CONTRIBUTING.md](CONTR
    booxd get --cookies cookies.txt --open BOOK_ID
    ```
 
-`get` needs a Netscape cookie file from a signed-in session; booxd never obtains one. `--open` works on Termux / Android only. An interrupted download resumes only when the server identified the file with a strong `ETag` or `Last-Modified` header; otherwise it restarts.
+`get` needs a Netscape cookie file from a signed-in session; booxd never obtains one. `--open` works on Termux / Android only. An interrupted download resumes only when the server identified the file with a strong `ETag` or `Last-Modified` header and the retry reaches the same host and path; otherwise it restarts.
 
 ![booxd book details in the terminal](docs/images/tui-detail.png)
 
