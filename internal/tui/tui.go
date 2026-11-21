@@ -18,13 +18,14 @@ type SearchFunc func(ctx context.Context, from source.Name, query string) ([]par
 type DetailFunc func(ctx context.Context, ref source.Ref) (parse.Detail, error)
 
 // DownloadFunc saves ref's file and returns its path. progress may be called
-// from any goroutine; a total of zero or less means the size is unknown.
+// from any goroutine; a total of zero or less means the size is unknown. ctx
+// is cancelled when the user cancels the download or quits.
 type DownloadFunc func(ctx context.Context, ref source.Ref, progress func(done, total int64)) (string, error)
 
 // Download outcomes a DownloadFunc reports. The download row shows the text of
 // ErrExists, ErrSessionExpired and ErrQuota as is. An error wrapping ErrFailed
-// is shown whole, so its text must hold no link or cookie; any other error
-// reads "failed".
+// is shown whole, so its text must hold no link or cookie. An error wrapping
+// context.Canceled reads "cancelled"; any other error reads "failed".
 var (
 	ErrExists         = errors.New("already downloaded")
 	ErrSessionExpired = errors.New("session expired")
@@ -102,6 +103,9 @@ func run(ctx context.Context, screen tcell.Screen, opts Options, inline bool) er
 	}
 	m := model{view: stateQuery, width: width, height: height, source: from, hasDetail: opts.Detail != nil, hasDownload: opts.Download != nil, theme: newTheme(opts.Mono)}
 	paint(screen, m)
+	// cancelDownload stops the one running download; only this goroutine
+	// touches it.
+	cancelDownload := context.CancelFunc(func() {})
 	for {
 		var event tcell.Event
 		if len(queued) > 0 {
@@ -174,7 +178,10 @@ func run(ctx context.Context, screen tcell.Screen, opts Options, inline bool) er
 				ref := m.book.ID
 				m.download = downloadState{ref: ref, text: "…", busy: true}
 				paint(screen, m)
+				dctx, dcancel := context.WithCancel(ctx)
+				cancelDownload = dcancel
 				start(func() {
+					defer dcancel()
 					// Only the download goroutine touches last, so a step is
 					// posted, and a frame drawn, only when the row text changes.
 					last := "…"
@@ -192,13 +199,16 @@ func run(ctx context.Context, screen tcell.Screen, opts Options, inline bool) er
 							return m, m.showsDetail(ref)
 						}})
 					}
-					path, err := opts.Download(ctx, ref, progress)
+					path, err := opts.Download(dctx, ref, progress)
 					text := downloadText(path, err)
 					post(&update{apply: func(m model) (model, bool) {
 						m.download = downloadState{ref: ref, text: text}
 						return m, m.showsDetail(ref)
 					}})
 				})
+			case act.cancel:
+				// The row changes when the download returns, not before.
+				cancelDownload()
 			case act.dirty:
 				paint(screen, m)
 			}
@@ -219,6 +229,9 @@ func progressText(done, total int64) string {
 func downloadText(path string, err error) string {
 	if err == nil {
 		return "saved " + path
+	}
+	if errors.Is(err, context.Canceled) {
+		return "cancelled"
 	}
 	for _, known := range []error{ErrExists, ErrSessionExpired, ErrQuota} {
 		if errors.Is(err, known) {

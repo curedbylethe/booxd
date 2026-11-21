@@ -894,6 +894,14 @@ func TestDownloadKey(t *testing.T) {
 	if got := downloadRow(m); got != "-" {
 		t.Fatalf("another book's row=%q, want -", got)
 	}
+	esc := tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone)
+	if got, act := handleKey(m, esc); got.view != stateResults || act != (action{dirty: true}) {
+		t.Fatalf("Esc on another book: view=%v action=%+v, want back", got.view, act)
+	}
+	m.book = z
+	if got, act := handleKey(m, esc); got.view != stateDetail || act != (action{cancel: true}) {
+		t.Fatalf("Esc on the running book: view=%v action=%+v, want cancel", got.view, act)
+	}
 }
 
 func TestDownloadOutcomeText(t *testing.T) {
@@ -907,7 +915,8 @@ func TestDownloadOutcomeText(t *testing.T) {
 		{fmt.Errorf("wrapped: %w", ErrQuota), "quota exhausted"},
 		{fmt.Errorf("%w: downloads need a signed-in session", ErrFailed), "failed: downloads need a signed-in session"},
 		{errors.New("Get https://host.test/dl?token=secret: refused"), "failed"},
-		{context.Canceled, "failed"},
+		{context.Canceled, "cancelled"},
+		{fmt.Errorf("%w: %w", ErrFailed, context.Canceled), "cancelled"},
 	} {
 		if got := downloadText("/books/5512.epub", tt.err); got != tt.want {
 			t.Errorf("downloadText(%v)=%q, want %q", tt.err, got, tt.want)
@@ -984,5 +993,77 @@ func TestProgressFramesChangeAtCoarseSteps(t *testing.T) {
 				t.Fatalf("download row=%q", got)
 			}
 		})
+	}
+}
+
+func TestDownloadCancel(t *testing.T) {
+	sim := newSimulation(t, 80, 24)
+	second := zlibBook()
+	second.ID.ID, second.Title = "7731", "Parable"
+	searches := 0
+	search := func(context.Context, source.Name, string) ([]parse.Book, error) {
+		searches++
+		return []parse.Book{zlibBook(), second}, nil
+	}
+	observed := make(chan error, 1)
+	download := func(ctx context.Context, _ source.Ref, _ func(done, total int64)) (string, error) {
+		<-ctx.Done()
+		observed <- ctx.Err()
+		return "", fmt.Errorf("get: %w", ctx.Err())
+	}
+	const running = "esc cancel · j/k scroll · q quit"
+	step := 0
+	var failure string
+	esc := func() { sim.InjectKey(tcell.KeyEscape, 0, tcell.ModNone) }
+	hooked := &hookScreen{SimulationScreen: sim}
+	hooked.onShow = func(lines []string) {
+		row := func(y int) string { return strings.TrimRight(lines[y], " ") }
+		switch {
+		case step == 0 && strings.Contains(lines[3], "Parable"):
+			step = 1
+			pressRune(sim, 'j')
+			sim.InjectKey(tcell.KeyEnter, 0, tcell.ModNone)
+			pressRune(sim, 'd')
+		case step == 1 && row(9) == "download: …":
+			if row(23) != running {
+				failure = "running footer=" + row(23)
+			}
+			step = 2
+			esc()
+		case step == 2 && row(9) == "download: cancelled":
+			if row(0) != "title: Parable" || row(23) != "d download · esc back · j/k scroll · q quit" {
+				failure = "after cancel title=" + row(0) + " footer=" + row(23)
+			}
+			step = 3
+			esc()
+		case step == 3 && strings.HasPrefix(lines[0], "search [zlibrary]: x"):
+			_, cells, width, _ := simLines(sim)
+			if !strings.Contains(lines[1], "Kindred") || !strings.Contains(lines[3], "Parable") || cells[3*width].Style != newTheme(false).reverse {
+				failure = "results after back=" + lines[1] + " | " + lines[3]
+			}
+			step = 4
+			sim.InjectKey(tcell.KeyCtrlC, 0, tcell.ModNone)
+		}
+	}
+	timeout := time.AfterFunc(5*time.Second, func() { sim.InjectKey(tcell.KeyCtrlC, 0, tcell.ModNone) })
+	defer timeout.Stop()
+	pressRune(sim, 'x')
+	sim.InjectKey(tcell.KeyEnter, 0, tcell.ModNone)
+	if err := Run(context.Background(), Options{Search: search, Download: download, Source: source.ZLibrary, Screen: hooked}); err != nil {
+		t.Fatal(err)
+	}
+	if failure != "" {
+		t.Fatal(failure)
+	}
+	if step != 4 || searches != 1 {
+		t.Fatalf("step=%d searches=%d, want 4 and 1", step, searches)
+	}
+	select {
+	case err := <-observed:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("download ctx err=%v, want context.Canceled", err)
+		}
+	default:
+		t.Fatal("download did not observe ctx.Done")
 	}
 }
