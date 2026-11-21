@@ -201,12 +201,21 @@ func downloadZLibrary(ctx context.Context, s *zlibrary.Searcher, client *fetch.C
 	if err != nil {
 		return "", err
 	}
-	return down.Download(ctx, client, down.Request{
+	path, err := down.Download(ctx, client, down.Request{
 		URL:      link.String(),
 		Dir:      cfg.DownloadDir,
 		Name:     zlibrary.SaveName(ref, detail.Format),
 		Progress: progress,
 	})
+	// The link was just resolved, so these statuses mean the host expired or refused it.
+	var status *down.StatusError
+	if errors.As(err, &status) {
+		switch status.Code {
+		case http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusGone:
+			return "", fmt.Errorf("zlibrary: download link expired or refused (status %d); run get again", status.Code)
+		}
+	}
+	return path, err
 }
 
 // tuiZLibrary serves the TUI's zlibrary callbacks from one client, so one
@@ -275,6 +284,9 @@ func (z tuiZLibrary) download(ctx context.Context, ref source.Ref, progress func
 		return "", tui.ErrSessionExpired
 	case errors.Is(err, zlibrary.ErrQuota):
 		return "", tui.ErrQuota
+	case errors.Is(err, context.Canceled):
+		// A cancelled transfer arrives as a *url.Error that quotes the link.
+		return "", context.Canceled
 	}
 	return "", err
 }
