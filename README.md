@@ -119,8 +119,8 @@ Flags go before the search query or book ID. `tui` reads config from `BOOXD_CONF
 | Command | Arguments and flags | Purpose |
 | --- | --- | --- |
 | `booxd search` | `--config`, `--source` (anna, zlibrary, or experimental irc), `--mirror`, `--page` (1), `--dump-html`, `--max-age` (24h), `--no-cache`, `--verbose`, `--language`, `--format` (both Z-Library only, repeatable); query | Search the catalog. `--mirror` skips discovery; `--dump-html` writes raw or cached HTML. `--language` and `--format` filter results on the Z-Library host. `--source irc` searches the configured IRC channel; anna-only and Z-Library-only flags are rejected. |
-| `booxd show` | `--config`, `--source` (anna), `--mirror`, `--verbose`; one book ID | Show metadata and download options. |
-| `booxd get` | `--config`, `--source` (anna), `--cookies`, `--mirror`, `--open`, `--verbose`; one book ID | Download with a supplied Netscape cookie jar. `--open` invokes `termux-open` on Android. |
+| `booxd show` | `--config`, `--source` (anna, zlibrary or experimental irc), `--mirror` (anna only), `--verbose`; one book ID | Show metadata and download options; an `irc:` reference is read offline. |
+| `booxd get` | `--config`, `--source` (anna, zlibrary or experimental irc), `--cookies` and `--mirror` (anna only), `--open`, `--verbose`; one book ID | Download with a supplied Netscape cookie jar, a Z-Library session, or over DCC for an `irc:` reference. `--open` invokes `termux-open` on Android. |
 | `booxd tui` | `--source` (anna), `--mono` | Open interactive search. `--source` sets the first source; `--mono` selects monochrome theme. |
 | `booxd version`, `booxd --version` | None | Print version and target. |
 | `booxd serve` | None | Not implemented; exits 1. |
@@ -134,7 +134,7 @@ booxd get --cookies cookies.txt BOOK_ID
 
 `--source` accepts `anna`, `zlibrary`, and `irc`; `anna` is the default. IRC search is experimental: it joins the `[irc] channel` on `[irc] server`, prints one `irc: searching <channel> (experimental source)` line, then prints results. The first column is a source-qualified reference such as `irc:%21artemis_serv%2016d6770d2ba9%20%7C%20The%20Last%20Hero.pdf`; it carries the request needed to reproduce the offer and round-trips through `source.Parse` and `BookFromRef`. An empty result set is not an error. A dial, send, timeout, or malformed-archive failure exits with status 1 and prints `booxd: <error>`; cancellation is reported the same way. Any other `--source` value exits with status 2 and `booxd: unknown source "<value>"`.
 
-`BOOK_ID` is the ID that `search` prints. For Anna's Archive it is `36451`, the same ID with a slug (`36451-the-hobbit`), or the qualified form `anna:36451`. For Z-Library it is `zlibrary:36451/<hash>`, or `36451/<hash>` with `--source zlibrary`. A source prefix in `BOOK_ID` wins over `--source`. A reference that names `irc` exits with status 2 and `booxd: irc books are not available yet`.
+`BOOK_ID` is the ID that `search` prints. For Anna's Archive it is `36451`, the same ID with a slug (`36451-the-hobbit`), or the qualified form `anna:36451`. For Z-Library it is `zlibrary:36451/<hash>`, or `36451/<hash>` with `--source zlibrary`. For IRC it is the escaped request line printed by search, for example `'irc:%21artemis_serv%2016d6770d2ba9%20%7C%20The%20Last%20Hero.pdf'`; quote it so the shell keeps the `!` and the spaces. That printed form is the only accepted IRC reference: a bare pack ID or an unescaped request line exits with status 2 and `booxd: source irc: ...`. A source prefix in `BOOK_ID` wins over `--source`.
 
 `--mirror`, `--cookies`, `--dump-html`, and `--max-age` apply to Anna's Archive only. With Z-Library or IRC they exit with status 2 and `booxd: --<flag> applies to anna only`. `--page` applies to Anna's Archive and Z-Library; with IRC, a value other than `1` exits with status 2 and `booxd: --page applies to anna and zlibrary only`. With Z-Library, `--no-cache` skips both reading and writing the cache. IRC never caches results, so `--no-cache` is accepted and ignored.
 
@@ -198,6 +198,18 @@ session_file = "/home/you/zlibrary-cookies.txt"
 
 Export the session file from a browser where you are signed in. booxd never signs in, asks for a password, or refreshes a session. Without `session_file`, `search` and `show` work anonymously and use the cache. With `session_file`, booxd sends its cookies only to the host they belong to and does not cache responses. booxd never prints cookie values or download links.
 
+## IRC (experimental)
+
+IRC is opt-in and experimental. Pass `--source irc` to `search`, or pass a printed `irc:` reference to `show` or `get`. No account, cookie or session is used: booxd sends no credentials and never tries to obtain them. The `[irc]` keys are `server`, `nick`, `channel`, `search_timeout` and `download_timeout` (see the configuration table and the `BOOXD_IRC_*` variables).
+
+Each IRC command prints one static status line and no spinner, progress updates or cursor movement: `irc: searching <channel> (experimental source)` for `search`, and `irc: requesting <name>.<format> from <server>` for `get`. `show` is offline, prints no status line, and reads the title, format and source from the reference alone.
+
+`get` streams the bot's offer over DCC into `download_dir`. DCC bypasses the HTTP cache, proxy, cookie jar and `internal/fetch`. The transfer writes `<name>.<format>.part` and renames it only when the received byte count matches the offer. A failed or interrupted transfer exits 1 and leaves the `.part`; the next `get` truncates it and starts over. There is no resume. A non-empty final file is reported as `already downloaded`, with no request sent.
+
+A reference stays usable as long as the bot still answers that pack's request. Nothing expires locally and booxd keeps no reference database. When the bot or pack is gone, `get` fails with `booxd: source irc: ...` or `booxd: irc: ...`; search again for a fresh reference. A stale reference cannot fetch the wrong file: the request line names the bot, the pack and the file, and the transfer is validated against the offer's own byte count.
+
+Availability is not guaranteed. booxd indexes nothing: it listens in a public IRC channel whose bots, packs and files appear and vanish. Downloads are checked only against the bytes the bot offers, not against a catalogue, checksum or signature; speed and completeness depend on the channel and the bot. Access to the channel and its files may be limited by local law, network policy or channel rules. You are responsible for complying with those rules and with the law where you are. Network access to the configured IRC server and a reachable DCC connection are required.
+
 ## Troubleshooting
 
 | Symptom | Solution |
@@ -223,6 +235,10 @@ Export the session file from a browser where you are signed in. booxd never sign
 | `down: server sent a web page or an empty body, not a book` | The server answered with a web page, such as a sign-in page, or with nothing. booxd saves no file. Check the session or cookie file, then try again. |
 | `irc: searching #... (experimental source)` | Informational: IRC search is experimental. Wait for the bot's reply; one line is printed per invocation, with no spinner or progress updates. |
 | `booxd: irc: ...` or `booxd: source irc: ...` | Check `[irc] server`, `nick`, `channel`, and `search_timeout` (or their `BOOXD_IRC_*` variables), plus network access. A missing search bot or a malformed archive surfaces here; booxd does not retry. |
+| `no offer from "<nick>" within <duration>` | The requested bot did not answer before `[irc] search_timeout` (or `download_timeout` for `get`). Search again; bots and packs come and go. |
+| `wrote N of M bytes; partial kept at ...` | The transfer did not match the bot's offered byte count. The `.part` file is kept; run `get` again to restart from scratch. |
+| `booxd: context canceled` or `booxd: context deadline exceeded` | The transfer was interrupted with Ctrl-C or hit `[irc] download_timeout`. The `.part` file is kept; run `get` again to restart. |
+| `booxd: source irc: reference ... is not a request line` | The `irc:` reference is malformed. Copy the full escaped reference from `search` and quote it on the command line; a bare pack ID is not accepted. |
 | `booxd: --page applies to anna and zlibrary only` | Omit `--page` when you use `--source irc`; IRC has no result pages. |
 | `booxd: --mirror applies to anna only` | Remove Anna-only flags when you use `--source zlibrary` or `--source irc`, or a `zlibrary:` ID. |
 

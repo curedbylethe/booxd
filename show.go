@@ -17,10 +17,9 @@ import (
 	"github.com/curedbylethe/booxd/internal/source"
 )
 
-// parseBookRef reads a book argument and refuses any source this build cannot
-// serve. An argument without a source prefix belongs to from; a prefix wins
-// over from. It returns the Anna's Archive page path (the argument minus an
-// "anna:" prefix, slug kept) for the request.
+// parseBookRef reads a book argument. An argument without a source prefix
+// belongs to from; a prefix wins over from. It returns the Anna's Archive page
+// path (the argument minus an "anna:" prefix, slug kept) for the request.
 func parseBookRef(raw string, from source.Name, stderr io.Writer) (source.Ref, string, bool) {
 	arg := strings.TrimSpace(raw)
 	if from != source.Anna && !strings.Contains(arg, ":") {
@@ -29,10 +28,6 @@ func parseBookRef(raw string, from source.Name, stderr io.Writer) (source.Ref, s
 	ref, err := source.Parse(arg)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "booxd: invalid book id %q\n", raw)
-		return source.Ref{}, "", false
-	}
-	if ref.Source == source.IRC {
-		_, _ = fmt.Fprintf(stderr, "booxd: %s books are not available yet\n", ref.Source)
 		return source.Ref{}, "", false
 	}
 	return ref, strings.TrimPrefix(arg, string(source.Anna)+":"), true
@@ -63,6 +58,12 @@ func runShow(args []string, stdout, stderr io.Writer, resolve resolveFunc, newCl
 	ref, pagePath, ok := parseBookRef(flags.Arg(0), from, stderr)
 	if !ok {
 		return 2
+	}
+	if ref.Source == source.IRC {
+		if !annaOnly(flags, stderr, "mirror") {
+			return 2
+		}
+		return showIRC(ref, stdout, stderr)
 	}
 	if ref.Source == source.ZLibrary && !annaOnly(flags, stderr, "mirror") {
 		return 2

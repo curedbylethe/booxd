@@ -408,22 +408,6 @@ func TestGetOpen(t *testing.T) {
 	}
 }
 
-func TestGetRefusesUnavailableSource(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	resolve := func(context.Context, config.Config, string, *fetch.Client) (string, error) {
-		t.Fatal("resolve called for an unavailable source")
-		return "", nil
-	}
-	newClient := func(config.Config, io.Writer, http.CookieJar) *fetch.Client {
-		t.Fatal("client created for an unavailable source")
-		return nil
-	}
-	code := run([]string{"get", "irc:16d6770d2ba9"}, &stdout, &stderr, resolve, newClient)
-	if code != 2 || stderr.String() != "booxd: irc books are not available yet\n" {
-		t.Fatalf("code=%d stderr=%q", code, stderr.String())
-	}
-}
-
 func TestGetQualifiedAnnaWithoutCookies(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	resolve := func(_ context.Context, _ config.Config, override string, _ *fetch.Client) (string, error) {

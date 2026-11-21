@@ -63,6 +63,12 @@ func runGet(args []string, stdout, stderr io.Writer, resolve resolveFunc, newCli
 	if *verbose {
 		log = stderr
 	}
+	if ref.Source == source.IRC {
+		if !annaOnly(flags, stderr, "mirror", "cookies") {
+			return 2
+		}
+		return getIRC(cfg, ref, *open, log, stdout, stderr)
+	}
 	if ref.Source == source.ZLibrary {
 		return getZLibrary(cfg, ref, *open, log, stdout, stderr, newClient)
 	}
