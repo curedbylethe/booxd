@@ -1,0 +1,21 @@
+{
+  "success": 1,
+  "book": {
+    "id": 5512,
+    "hash": "a1b2c3",
+    "title": "The Left Hand of Darkness",
+    "author": "Ursula K. Le Guin",
+    "publisher": "Ace Books",
+    "year": "1969",
+    "language": "english",
+    "extension": "epub",
+    "filesize": 1258291,
+    "filesizeString": "1.20 MB",
+    "identifier": "9780441478125",
+    "isbn": "9780441478125",
+    "pages": 304,
+    "description": "<p>A lone envoy visits Gethen.</p>\n<p>Winter &amp; ice.</p>",
+    "dl": "/dl/5512/a1b2c3",
+    "readOnlineUrl": "/read/5512"
+  }
+}
