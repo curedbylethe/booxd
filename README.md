@@ -164,8 +164,13 @@ Config loads from `booxd/config.toml` under the OS config directory. Flags overr
 | `no_update_check` | `false` | Disable the startup update check. |
 | `[zlibrary] base_url` | Empty | Absolute `https` URL of the Z-Library EAPI host. Required for `--source zlibrary`. |
 | `[zlibrary] session_file` | Empty | Netscape cookie file with the `remix_userid` or `remix_userkey` cookie for `base_url`. Required for `get` and TUI downloads; optional for `search`, `show`, and TUI search. |
+| `[irc] server` | `irc.irchighway.net:6697` | IRC `host:port` server for channel search and downloads. |
+| `[irc] nick` | `booxd` | IRC nickname. |
+| `[irc] channel` | `#ebooks` | IRC channel to join; must start with `#`. |
+| `[irc] search_timeout` | `2m` | Positive Go duration to wait for an IRC bot reply. |
+| `[irc] download_timeout` | `30m` | Positive Go duration to wait for an IRC download. |
 
-Environment: `BOOXD_CONFIG`, `BOOXD_MIRRORS`, `BOOXD_DOWNLOAD_DIR`, `BOOXD_CACHE_DIR`, `BOOXD_PROXY`, `BOOXD_USER_AGENT`, `BOOXD_REQUEST_TIMEOUT`, `BOOXD_PER_HOST_INTERVAL`, `BOOXD_NO_UPDATE_CHECK`, `BOOXD_ZLIBRARY_BASE_URL`, `BOOXD_ZLIBRARY_SESSION_FILE`.
+Environment: `BOOXD_CONFIG`, `BOOXD_MIRRORS`, `BOOXD_DOWNLOAD_DIR`, `BOOXD_CACHE_DIR`, `BOOXD_PROXY`, `BOOXD_USER_AGENT`, `BOOXD_REQUEST_TIMEOUT`, `BOOXD_PER_HOST_INTERVAL`, `BOOXD_NO_UPDATE_CHECK`, `BOOXD_ZLIBRARY_BASE_URL`, `BOOXD_ZLIBRARY_SESSION_FILE`, `BOOXD_IRC_SERVER`, `BOOXD_IRC_NICK`, `BOOXD_IRC_CHANNEL`, `BOOXD_IRC_SEARCH_TIMEOUT`, `BOOXD_IRC_DOWNLOAD_TIMEOUT`.
 
 | Platform | Config file | Cache |
 | --- | --- | --- |

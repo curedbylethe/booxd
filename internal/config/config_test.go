@@ -14,6 +14,8 @@ var envNames = []string{
 	"BOOXD_MIRRORS", "BOOXD_DOWNLOAD_DIR", "BOOXD_CACHE_DIR", "BOOXD_PROXY",
 	"BOOXD_USER_AGENT", "BOOXD_REQUEST_TIMEOUT", "BOOXD_PER_HOST_INTERVAL",
 	"BOOXD_NO_UPDATE_CHECK", "BOOXD_ZLIBRARY_BASE_URL", "BOOXD_ZLIBRARY_SESSION_FILE",
+	"BOOXD_IRC_SERVER", "BOOXD_IRC_NICK", "BOOXD_IRC_CHANNEL",
+	"BOOXD_IRC_SEARCH_TIMEOUT", "BOOXD_IRC_DOWNLOAD_TIMEOUT",
 }
 
 func cleanEnv(t *testing.T) {
@@ -46,6 +48,10 @@ func TestDefaults(t *testing.T) {
 	}
 	if c.NoUpdateCheck {
 		t.Fatalf("update check must be enabled by default: %+v", c)
+	}
+	if c.IRCServer != "irc.irchighway.net:6697" || c.IRCNick != "booxd" || c.IRCChannel != "#ebooks" ||
+		c.IRCSearchTimeout != 2*time.Minute || c.IRCDownloadTimeout != 30*time.Minute {
+		t.Fatalf("unexpected irc defaults: %+v", c)
 	}
 }
 
@@ -210,5 +216,104 @@ func TestLoadZLibrary(t *testing.T) {
 	_, err = Load(writeConfig(t, "[zlibrary]\npassword = \"x\"\n"), false, base)
 	if err == nil || !strings.Contains(err.Error(), "zlibrary.password") {
 		t.Fatalf("unknown zlibrary key error = %v", err)
+	}
+}
+
+func TestIRCConfigDefaultsNoFile(t *testing.T) {
+	cleanEnv(t)
+	c, err := Load(filepath.Join(t.TempDir(), "missing.toml"), false, Defaults())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.IRCServer != "irc.irchighway.net:6697" || c.IRCNick != "booxd" || c.IRCChannel != "#ebooks" ||
+		c.IRCSearchTimeout != 2*time.Minute || c.IRCDownloadTimeout != 30*time.Minute {
+		t.Fatalf("irc defaults not preserved without a file: %+v", c)
+	}
+}
+
+func TestIRCConfigFile(t *testing.T) {
+	cleanEnv(t)
+	path := writeConfig(t, "[irc]\nserver = \"irc.example:6667\"\nnick = \"filebot\"\nchannel = \"#files\"\nsearch_timeout = \"10s\"\ndownload_timeout = \"1h\"\n")
+	c, err := Load(path, false, Defaults())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.IRCServer != "irc.example:6667" || c.IRCNick != "filebot" || c.IRCChannel != "#files" ||
+		c.IRCSearchTimeout != 10*time.Second || c.IRCDownloadTimeout != time.Hour {
+		t.Fatalf("irc file section not loaded: %+v", c)
+	}
+}
+
+func TestIRCConfigEnvOverridesFile(t *testing.T) {
+	cleanEnv(t)
+	path := writeConfig(t, "[irc]\nserver = \"irc.file:6667\"\nnick = \"filenick\"\nchannel = \"#filechan\"\nsearch_timeout = \"10s\"\ndownload_timeout = \"1h\"\n")
+	t.Setenv("BOOXD_IRC_SERVER", "irc.env:6697")
+	t.Setenv("BOOXD_IRC_NICK", "envnick")
+	t.Setenv("BOOXD_IRC_CHANNEL", "#envchan")
+	t.Setenv("BOOXD_IRC_SEARCH_TIMEOUT", "20s")
+	t.Setenv("BOOXD_IRC_DOWNLOAD_TIMEOUT", "2h")
+	c, err := Load(path, false, Defaults())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.IRCServer != "irc.env:6697" || c.IRCNick != "envnick" || c.IRCChannel != "#envchan" ||
+		c.IRCSearchTimeout != 20*time.Second || c.IRCDownloadTimeout != 2*time.Hour {
+		t.Fatalf("irc environment did not override the file: %+v", c)
+	}
+}
+
+func TestIRCConfigFileErrors(t *testing.T) {
+	cleanEnv(t)
+	base := Defaults()
+	for _, tc := range []struct{ name, body, want string }{
+		{"server missing colon", "[irc]\nserver = \"irc.example\"\n", "irc server must be host:port"},
+		{"server empty host", "[irc]\nserver = \":6697\"\n", "irc server must be host:port"},
+		{"server empty port", "[irc]\nserver = \"irc.example:\"\n", "irc server must be host:port"},
+		{"server nonnumeric port", "[irc]\nserver = \"irc.example:abc\"\n", "irc server must be host:port"},
+		{"server port zero", "[irc]\nserver = \"irc.example:0\"\n", "irc server must be host:port"},
+		{"server port too large", "[irc]\nserver = \"irc.example:65536\"\n", "irc server must be host:port"},
+		{"empty nick", "[irc]\nnick = \"\"\n", "irc nick must not be empty"},
+		{"channel without hash", "[irc]\nchannel = \"ebooks\"\n", "irc channel must start with \"#\""},
+		{"search timeout zero", "[irc]\nsearch_timeout = \"0s\"\n", "irc search_timeout must be a positive duration"},
+		{"download timeout zero", "[irc]\ndownload_timeout = \"0s\"\n", "irc download_timeout must be a positive duration"},
+		{"timeout not a string", "[irc]\nsearch_timeout = 5\n", "irc search_timeout must be a duration string"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Load(writeConfig(t, tc.body), false, base)
+			if err == nil || !strings.Contains(err.Error(), tc.want) || strings.Contains(err.Error(), "\n") {
+				t.Fatalf("error = %v, want substring %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestIRCConfigEnvErrors(t *testing.T) {
+	cleanEnv(t)
+	t.Setenv("BOOXD_IRC_SERVER", "irc.example")
+	if _, err := Load("", false, Defaults()); err == nil || !strings.Contains(err.Error(), "BOOXD_IRC_SERVER must be host:port") {
+		t.Fatalf("server env error = %v", err)
+	}
+	cleanEnv(t)
+	t.Setenv("BOOXD_IRC_CHANNEL", "ebooks")
+	if _, err := Load("", false, Defaults()); err == nil || !strings.Contains(err.Error(), "BOOXD_IRC_CHANNEL must start with") {
+		t.Fatalf("channel env error = %v", err)
+	}
+	cleanEnv(t)
+	t.Setenv("BOOXD_IRC_SEARCH_TIMEOUT", "0s")
+	if _, err := Load("", false, Defaults()); err == nil || !strings.Contains(err.Error(), "BOOXD_IRC_SEARCH_TIMEOUT must be a positive duration") {
+		t.Fatalf("search timeout env error = %v", err)
+	}
+	cleanEnv(t)
+	t.Setenv("BOOXD_IRC_DOWNLOAD_TIMEOUT", "-1s")
+	if _, err := Load("", false, Defaults()); err == nil || !strings.Contains(err.Error(), "BOOXD_IRC_DOWNLOAD_TIMEOUT must be a positive duration") {
+		t.Fatalf("download timeout env error = %v", err)
+	}
+}
+
+func TestIRCConfigUnknownKey(t *testing.T) {
+	cleanEnv(t)
+	_, err := Load(writeConfig(t, "[irc]\npassword = \"x\"\n"), false, Defaults())
+	if err == nil || !strings.Contains(err.Error(), "irc.password") {
+		t.Fatalf("unknown irc key error = %v", err)
 	}
 }
