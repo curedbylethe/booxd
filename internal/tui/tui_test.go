@@ -1096,3 +1096,61 @@ func TestSearchRequestsPageOne(t *testing.T) {
 		t.Fatalf("requested pages = %v, want [1]", pages)
 	}
 }
+
+func TestSearchCancelsSupersededRequest(t *testing.T) {
+	sim := newSimulation(t, 80, 24)
+	firstDone := make(chan error, 1)
+	firstCancelled := make(chan struct{})
+	search := func(ctx context.Context, _ source.Name, query string, _ int) ([]parse.Book, error) {
+		if query == "a" {
+			<-ctx.Done()
+			firstDone <- ctx.Err()
+			close(firstCancelled)
+			return nil, ctx.Err()
+		}
+		// The first request must stop because the second began, not because
+		// the session ended.
+		select {
+		case <-firstCancelled:
+		case <-time.After(2 * time.Second):
+			t.Error("first request still running when the second returned")
+		}
+		if err := ctx.Err(); err != nil {
+			t.Errorf("second request context already done: %v", err)
+		}
+		return []parse.Book{zlibBook()}, nil
+	}
+	hooked := &hookScreen{SimulationScreen: sim}
+	step := 0
+	hooked.onShow = func(lines []string) {
+		switch {
+		case step == 0 && strings.TrimRight(lines[23], " ") == "…":
+			step = 1
+			sim.InjectKey(tcell.KeyRune, '/', tcell.ModNone)
+			sim.InjectKey(tcell.KeyBackspace, 0, tcell.ModNone)
+			sim.InjectKey(tcell.KeyRune, 'b', tcell.ModNone)
+			sim.InjectKey(tcell.KeyEnter, 0, tcell.ModNone)
+		case step == 1 && strings.Contains(lines[1], "Kindred"):
+			step = 2
+			sim.InjectKey(tcell.KeyCtrlC, 0, tcell.ModNone)
+		}
+	}
+	timeout := time.AfterFunc(5*time.Second, func() { sim.InjectKey(tcell.KeyCtrlC, 0, tcell.ModNone) })
+	defer timeout.Stop()
+	pressRune(sim, 'a')
+	sim.InjectKey(tcell.KeyEnter, 0, tcell.ModNone)
+	if err := Run(context.Background(), Options{Search: search, Screen: hooked}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-firstDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("first request ended with %v, want context.Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("first request was not cancelled")
+	}
+	if step != 2 {
+		t.Fatalf("step = %d, want 2", step)
+	}
+}
