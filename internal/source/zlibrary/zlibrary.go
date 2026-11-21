@@ -233,6 +233,20 @@ func display(s string) string {
 	}, s)
 }
 
+var blockEnd = regexp.MustCompile(`(?i)</p\s*>|<br\s*/?>`)
+
+// paragraphs turns an HTML description into plain text with a blank line
+// between paragraphs; a paragraph ends at </p> or <br>.
+func paragraphs(s string) string {
+	var out []string
+	for _, p := range blockEnd.Split(s, -1) {
+		if p = oneLine(strings.ReplaceAll(p, "\n", " ")); p != "" {
+			out = append(out, p)
+		}
+	}
+	return strings.Join(out, "\n\n")
+}
+
 // oneLine strips HTML tags and entities and collapses whitespace.
 func oneLine(s string) string {
 	return strings.Join(strings.Fields(display(html.UnescapeString(tag.ReplaceAllString(s, " ")))), " ")
