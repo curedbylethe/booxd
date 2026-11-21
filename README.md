@@ -118,7 +118,7 @@ Flags go before the search query or book ID. `tui` reads config from `BOOXD_CONF
 
 | Command | Arguments and flags | Purpose |
 | --- | --- | --- |
-| `booxd search` | `--config`, `--source` (anna), `--mirror`, `--page` (1), `--dump-html`, `--max-age` (24h), `--no-cache`, `--verbose`; query | Search the catalog. `--mirror` skips discovery; `--dump-html` writes raw or cached HTML. |
+| `booxd search` | `--config`, `--source` (anna), `--mirror`, `--page` (1), `--dump-html`, `--max-age` (24h), `--no-cache`, `--verbose`, `--language`, `--format` (both Z-Library only, repeatable); query | Search the catalog. `--mirror` skips discovery; `--dump-html` writes raw or cached HTML. `--language` and `--format` filter results on the Z-Library host. |
 | `booxd show` | `--config`, `--source` (anna), `--mirror`, `--verbose`; one book ID | Show metadata and download options. |
 | `booxd get` | `--config`, `--source` (anna), `--cookies`, `--mirror`, `--open`, `--verbose`; one book ID | Download with a supplied Netscape cookie jar. `--open` invokes `termux-open` on Android. |
 | `booxd tui` | `--source` (anna), `--mono` | Open interactive search. `--source` sets the first source; `--mono` selects monochrome theme. |
@@ -127,6 +127,7 @@ Flags go before the search query or book ID. `tui` reads config from `BOOXD_CONF
 
 ```sh
 booxd search --page 2 "jane austen"
+booxd search --source zlibrary --language en --format epub "dune"
 booxd show BOOK_ID
 booxd get --cookies cookies.txt BOOK_ID
 ```
@@ -136,6 +137,10 @@ booxd get --cookies cookies.txt BOOK_ID
 `BOOK_ID` is the ID that `search` prints. For Anna's Archive it is `36451`, the same ID with a slug (`36451-the-hobbit`), or the qualified form `anna:36451`. For Z-Library it is `zlibrary:36451/<hash>`, or `36451/<hash>` with `--source zlibrary`. A source prefix in `BOOK_ID` wins over `--source`. A reference that names `irc` exits with status 2 and `booxd: irc books are not available yet`.
 
 `--mirror`, `--cookies`, `--dump-html`, and `--max-age` apply to Anna's Archive only. With Z-Library they exit with status 2 and `booxd: --<flag> applies to anna only`. With Z-Library, `--no-cache` skips both reading and writing the cache.
+
+`--language` and `--format` apply to Z-Library only. With `anna` they exit with status 2 and `booxd: --<flag> applies to zlibrary only`. Each flag takes one value per use and can be repeated; a comma list is not accepted. The Z-Library host does the filtering, so results match its EAPI behaviour; booxd does not re-filter. A TUI selector may follow; for now the flags are CLI-only.
+
+`--language` accepts an ISO 639-1 code or the EAPI name it maps to: `en`, `fa`, `fr`, `de`, `es`, `it`, `pt`, `ru`, `zh`, `ja`, `ko`, `ar`, `hi`, `bn`, `tr`, `pl`, `nl`, `sv`, `no`, `da`, `fi`, `cs`, `el`, `he`, `hu`, `id`, `ro`, `sk`, `uk`, `vi`, `th`, `bg`, `sr`, `hr`, `sl`, `et`, `lv`, `lt`, `ca`, `ms`, `ur`, `sw`, `ta`, `te`, `ml`, `kn`, `gu`, `pa`, `ne`, `si`, `km`, `lo`, `my`, `ka`, `hy`, `az`, `kk`, `uz`, `be`, `mk`, `sq`, `bs`, `is`, `ga`, `cy`, `mt`, `lb`, `af`, `am`, `yo`, `ig`, `ha`, `zu`, `xh`, `so`, `ps`, `ku`, `tg`, `ky`, `mn`, `bo`, `dz`, `ug`. The matching EAPI name (for example `english` for `en`, `persian` for `fa`) is also accepted. An unknown value exits with status 2 and `booxd: unknown language "<value>"`. `--format` accepts `AZW`, `AZW3`, `CBZ`, `DJV`, `DJVU`, `EPUB`, `FB2`, `LIT`, `MOBI`, `PDF`, `RTF`, `TXT`, case-insensitively. An unknown value exits with status 2 and `booxd: unknown format "<value>"`.
 
 | Exit code | Meaning |
 | --- | --- |
