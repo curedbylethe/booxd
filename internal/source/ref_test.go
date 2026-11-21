@@ -1,6 +1,10 @@
 package source
 
-import "testing"
+import (
+	"fmt"
+	"strings"
+	"testing"
+)
 
 func TestParse(t *testing.T) {
 	tests := []struct {
@@ -55,6 +59,23 @@ func TestParse(t *testing.T) {
 				t.Errorf("Validate() = %v", err)
 			}
 		})
+	}
+}
+
+func TestRefValidateIRC(t *testing.T) {
+	bad := []string{"", "abc\ndef", "abc\x00def", "abc\x7fdef", strings.Repeat("a", 301)}
+	for _, id := range bad {
+		r := Ref{IRC, id, ""}
+		if err := r.Validate(); err == nil || err.Error() != fmt.Sprintf("source: invalid book id %q", id) {
+			t.Errorf("Validate(%+v) = %v, want invalid book id", r, err)
+		}
+	}
+	if err := (Ref{IRC, strings.Repeat("a", 300), ""}).Validate(); err != nil {
+		t.Errorf("Validate(300-byte ID) = %v, want nil", err)
+	}
+	r, err := Parse("irc:abc%2Fdef")
+	if err != nil || r != (Ref{IRC, "abc/def", ""}) || r.String() != "irc:abc%2Fdef" {
+		t.Errorf("Parse(irc:abc%%2Fdef) = %+v, %v; want the display form to round trip", r, err)
 	}
 }
 

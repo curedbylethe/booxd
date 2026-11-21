@@ -16,9 +16,9 @@ const (
 )
 
 var (
-	bookA = Book{Server: "artemis_serv", ID: "16d6770d2ba9", Name: "Name", Format: "epub", Size: "49.78MB", Raw: lineA}
-	bookB = Book{Server: "bot", ID: "abc123", Name: "Other", Format: "pdf", Size: "2MB", Raw: lineB}
-	bookC = Book{Server: "serv", ID: "xyz789", Name: "Third", Format: "mobi", Size: "3MB", Raw: lineC}
+	bookA = Book{Server: "artemis_serv", ID: "16d6770d2ba9", Name: "Name", Format: "epub", Size: "49.78MB"}
+	bookB = Book{Server: "bot", ID: "abc123", Name: "Other", Format: "pdf", Size: "2MB"}
+	bookC = Book{Server: "serv", ID: "xyz789", Name: "Third", Format: "mobi", Size: "3MB"}
 )
 
 // zipFixture builds an in-memory archive; directory-prefixed member names

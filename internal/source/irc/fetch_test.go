@@ -37,9 +37,6 @@ func TestFetchHappyPath(t *testing.T) {
 	if len(texts) != 1 || texts[0] != bookA.requestLine() || texts[0] != wantLine {
 		t.Fatalf("Say texts = %q, want [%q] (requestLine)", texts, wantLine)
 	}
-	if texts[0] != strings.TrimSpace(strings.Split(bookA.Raw, "::INFO::")[0]) {
-		t.Fatalf("request line %q is not Raw without the ::INFO:: tail", texts[0])
-	}
 	if len(targets) != 1 || targets[0] != "#ebooks" {
 		t.Fatalf("Say targets = %q, want [#ebooks]", targets)
 	}
@@ -197,7 +194,7 @@ func TestFetchZeroByteOffer(t *testing.T) {
 func TestFetchValidationAndSayError(t *testing.T) {
 	t.Run("empty arguments", func(t *testing.T) {
 		bad := []Book{{}, bookA, bookA}
-		bad[1].Raw = ""
+		bad[1].Name = ""
 		bad[2].Server = ""
 		paths := []string{"", "x", "x"}
 		for i := range bad {
@@ -219,6 +216,20 @@ func TestFetchValidationAndSayError(t *testing.T) {
 			t.Fatalf("error = %v, want wrapped send failure", err)
 		}
 	})
+}
+
+func TestFetchRejectsInvalidBook(t *testing.T) {
+	bad := bookA
+	bad.Name = ""
+	f := newFakeClient("#ebooks")
+	s := testSearcher(f)
+	if _, err := s.Fetch(context.Background(), bad, filepath.Join(t.TempDir(), "book.epub")); err == nil || !strings.Contains(err.Error(), "source irc: fetch") {
+		t.Fatalf("Fetch error = %v, want validation error", err)
+	}
+	texts, _ := f.waitSays(t, 0)
+	if len(texts) != 0 {
+		t.Fatalf("Say calls = %q, want none before validation", texts)
+	}
 }
 
 // blockedPipeOpen serves data then holds the pipe open until release, so a
