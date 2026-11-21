@@ -47,7 +47,7 @@ func (s *searcher) search(ctx context.Context, query string, opts searchOptions)
 	var cached cache.Entry
 	hit := false
 	// source.Anna is the only provider searched today; #35 passes the selected one.
-	key := cache.SearchKey(source.Anna, query, opts.Page)
+	key := cache.SearchKey(source.Anna, query, source.SearchOptions{Page: opts.Page})
 	if s.store != nil && !opts.NoCache {
 		cached, hit = s.store.Get(key)
 	}

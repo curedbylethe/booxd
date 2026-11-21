@@ -173,7 +173,7 @@ func searchZLibrary(cfg config.Config, store *cache.Store, query string, page in
 	if !session {
 		s.Store = store
 	}
-	books, err := s.Search(context.Background(), query, page)
+	books, err := s.Search(context.Background(), query, source.SearchOptions{Page: page})
 	if err != nil {
 		if len(books) == 0 {
 			return zlibraryFailure(stderr, err)
@@ -286,7 +286,7 @@ func (z tuiZLibrary) search(ctx context.Context, query string, page int) ([]pars
 	}
 	ctx, cancel := context.WithTimeout(ctx, z.cfg.RequestTimeout)
 	defer cancel()
-	books, err := z.s.Search(ctx, query, page)
+	books, err := z.s.Search(ctx, query, source.SearchOptions{Page: page})
 	if err != nil {
 		return nil, errors.New(zlibraryMessage(err))
 	}

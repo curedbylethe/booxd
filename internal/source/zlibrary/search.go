@@ -33,17 +33,17 @@ type searchResponse struct {
 // Search returns one 1-based page of results for query. A success with no
 // books is an empty result. When a live request fails and a stale cached page
 // exists, Search returns that page together with the error.
-func (s *Searcher) Search(ctx context.Context, query string, page int) ([]source.Book, error) {
-	if page < 1 {
-		page = 1
+func (s *Searcher) Search(ctx context.Context, query string, opts source.SearchOptions) ([]source.Book, error) {
+	if opts.Page < 1 {
+		opts.Page = 1
 	}
-	form := url.Values{"message": {query}, "page": {strconv.Itoa(page)}, "limit": {strconv.Itoa(pageSize)}}
+	form := url.Values{"message": {query}, "page": {strconv.Itoa(opts.Page)}, "limit": {strconv.Itoa(pageSize)}}
 	send := func() (*fetch.Response, error) {
 		return s.client.Post(ctx, s.base.JoinPath("eapi", "book", "search").String(), form, nil)
 	}
 	// Like the Anna path, an empty page is not cached.
 	nonEmpty := func(books []source.Book) bool { return len(books) > 0 }
-	return load(s, cache.SearchKey(source.ZLibrary, query, page), query, page, send, decodeSearch, nonEmpty)
+	return load(s, cache.SearchKey(source.ZLibrary, query, opts), query, opts.Page, send, decodeSearch, nonEmpty)
 }
 
 func decodeSearch(resp *fetch.Response) ([]source.Book, error) {

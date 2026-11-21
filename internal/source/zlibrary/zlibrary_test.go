@@ -88,7 +88,7 @@ func TestSearchFormAndRefs(t *testing.T) {
 		form = r.PostForm
 		_, _ = w.Write(fixture(t, "search.json"))
 	})
-	books, err := s.Search(context.Background(), "left hand", 2)
+	books, err := s.Search(context.Background(), "left hand", source.SearchOptions{Page: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestSearchPageStartsAtOne(t *testing.T) {
 		page = r.FormValue("page")
 		_, _ = w.Write(fixture(t, "search-empty.json"))
 	})
-	books, err := s.Search(context.Background(), "nothing", 0)
+	books, err := s.Search(context.Background(), "nothing", source.SearchOptions{Page: 0})
 	if err != nil || len(books) != 0 {
 		t.Fatalf("Search = %v, %v; want empty, nil", books, err)
 	}
@@ -132,7 +132,7 @@ func TestSearchPageStartsAtOne(t *testing.T) {
 
 func TestSearchAmbiguousRefRefused(t *testing.T) {
 	s, _ := serve(t, false, reply(200, fixture(t, "search-no-hash.json")))
-	books, err := s.Search(context.Background(), "x", 1)
+	books, err := s.Search(context.Background(), "x", source.SearchOptions{Page: 1})
 	var malformed *ErrMalformed
 	if !errors.As(err, &malformed) || malformed.Field != "books[0].hash" || books != nil {
 		t.Fatalf("Search = %v, %v; want ErrMalformed books[0].hash", books, err)
@@ -222,7 +222,7 @@ func TestSessionExpired(t *testing.T) {
 	} {
 		t.Run(tc.file, func(t *testing.T) {
 			s, _ := serve(t, true, reply(400, fixture(t, tc.file)))
-			_, err := s.Search(context.Background(), "x", 1)
+			_, err := s.Search(context.Background(), "x", source.SearchOptions{Page: 1})
 			if !errors.Is(err, ErrSessionExpired) {
 				t.Fatalf("error = %v, want ErrSessionExpired", err)
 			}
@@ -330,7 +330,7 @@ func TestCacheAnonymousHitAndMiss(t *testing.T) {
 	})
 	s.Store = cache.Open(t.TempDir())
 	for range 2 {
-		if books, err := s.Search(context.Background(), "Left  Hand", 1); err != nil || len(books) != 2 {
+		if books, err := s.Search(context.Background(), "Left  Hand", source.SearchOptions{Page: 1}); err != nil || len(books) != 2 {
 			t.Fatalf("Search = %v, %v", books, err)
 		}
 		if d, err := s.Detail(context.Background(), leGuin); err != nil || d.Title == "" {
@@ -340,7 +340,7 @@ func TestCacheAnonymousHitAndMiss(t *testing.T) {
 	if calls.Load() != 2 {
 		t.Fatalf("server saw %d requests, want 2", calls.Load())
 	}
-	if _, ok := s.Store.Get(cache.SearchKey(source.ZLibrary, "left hand", 1)); !ok {
+	if _, ok := s.Store.Get(cache.SearchKey(source.ZLibrary, "left hand", source.SearchOptions{Page: 1})); !ok {
 		t.Error("search not stored under the zlibrary key")
 	}
 	if _, ok := s.Store.Get(cache.RefKey(leGuin)); !ok {
@@ -351,11 +351,11 @@ func TestCacheAnonymousHitAndMiss(t *testing.T) {
 func TestCacheIgnoresOtherSource(t *testing.T) {
 	s, calls := serve(t, false, reply(200, fixture(t, "search.json")))
 	s.Store = cache.Open(t.TempDir())
-	anna := cache.Entry{Key: cache.SearchKey(source.Anna, "kindred", 1), Status: 200, FetchedAt: time.Now(), Body: fixture(t, "search-empty.json")}
+	anna := cache.Entry{Key: cache.SearchKey(source.Anna, "kindred", source.SearchOptions{Page: 1}), Status: 200, FetchedAt: time.Now(), Body: fixture(t, "search-empty.json")}
 	if err := s.Store.Put(anna); err != nil {
 		t.Fatal(err)
 	}
-	books, err := s.Search(context.Background(), "kindred", 1)
+	books, err := s.Search(context.Background(), "kindred", source.SearchOptions{Page: 1})
 	if err != nil || len(books) != 2 || calls.Load() != 1 {
 		t.Fatalf("Search = %d books, %v, %d calls; want live zlibrary result", len(books), err, calls.Load())
 	}
@@ -364,11 +364,11 @@ func TestCacheIgnoresOtherSource(t *testing.T) {
 func TestCacheStaleFallback(t *testing.T) {
 	s, _ := serve(t, false, reply(404, fixture(t, "error-not-found.json")))
 	s.Store = cache.Open(t.TempDir())
-	old := cache.Entry{Key: cache.SearchKey(source.ZLibrary, "kindred", 1), Status: 200, FetchedAt: time.Now().Add(-2 * cache.DefaultTTL), Body: fixture(t, "search.json")}
+	old := cache.Entry{Key: cache.SearchKey(source.ZLibrary, "kindred", source.SearchOptions{Page: 1}), Status: 200, FetchedAt: time.Now().Add(-2 * cache.DefaultTTL), Body: fixture(t, "search.json")}
 	if err := s.Store.Put(old); err != nil {
 		t.Fatal(err)
 	}
-	books, err := s.Search(context.Background(), "kindred", 1)
+	books, err := s.Search(context.Background(), "kindred", source.SearchOptions{Page: 1})
 	var re *ResponseError
 	if len(books) != 2 || !errors.As(err, &re) {
 		t.Fatalf("Search = %d books, %v; want stale books with the live error", len(books), err)
@@ -387,7 +387,7 @@ func TestCacheSessionNeverReadsOrWrites(t *testing.T) {
 	s.Store = cache.Open(dir)
 	// Fresh entries that would be served if the store were consulted.
 	for _, e := range []cache.Entry{
-		{Key: cache.SearchKey(source.ZLibrary, "kindred", 1), Status: 200, FetchedAt: time.Now(), Body: fixture(t, "search-empty.json")},
+		{Key: cache.SearchKey(source.ZLibrary, "kindred", source.SearchOptions{Page: 1}), Status: 200, FetchedAt: time.Now(), Body: fixture(t, "search-empty.json")},
 		{Key: cache.RefKey(leGuin), Status: 200, FetchedAt: time.Now(), Body: fixture(t, "detail-filesize.json")},
 	} {
 		if err := s.Store.Put(e); err != nil {
@@ -395,11 +395,11 @@ func TestCacheSessionNeverReadsOrWrites(t *testing.T) {
 		}
 	}
 	before := cacheFiles(t, dir)
-	books, err := s.Search(context.Background(), "kindred", 1)
+	books, err := s.Search(context.Background(), "kindred", source.SearchOptions{Page: 1})
 	if err != nil || len(books) != 2 {
 		t.Fatalf("Search = %v, %v; want live result", books, err)
 	}
-	if _, err := s.Search(context.Background(), "other", 1); err != nil {
+	if _, err := s.Search(context.Background(), "other", source.SearchOptions{Page: 1}); err != nil {
 		t.Fatal(err)
 	}
 	d, err := s.Detail(context.Background(), leGuin)
@@ -419,7 +419,7 @@ func TestCacheSkipsEmptySearch(t *testing.T) {
 	dir := t.TempDir()
 	s.Store = cache.Open(dir)
 	for range 2 {
-		if books, err := s.Search(context.Background(), "nothing", 1); err != nil || len(books) != 0 {
+		if books, err := s.Search(context.Background(), "nothing", source.SearchOptions{Page: 1}); err != nil || len(books) != 0 {
 			t.Fatalf("Search = %v, %v", books, err)
 		}
 	}
@@ -441,7 +441,7 @@ func TestUnavailableNamesOnlyHost(t *testing.T) {
 	}
 	ctx := context.Background()
 	calls := map[string]func() error{
-		"Search": func() error { _, err := s.Search(ctx, "secret-query-77", 1); return err },
+		"Search": func() error { _, err := s.Search(ctx, "secret-query-77", source.SearchOptions{Page: 1}); return err },
 		"Detail": func() error { _, err := s.Detail(ctx, leGuin); return err },
 		"ResolveDownload": func() error {
 			_, err := s.ResolveDownload(ctx, leGuin)
@@ -463,7 +463,7 @@ func TestUnavailableOnDeadline(t *testing.T) {
 	s, _ := serve(t, false, reply(200, fixture(t, "search.json")))
 	ctx, cancel := context.WithTimeout(context.Background(), -time.Second)
 	defer cancel()
-	if _, err := s.Search(ctx, "x", 1); !errors.Is(err, ErrUnavailable) {
+	if _, err := s.Search(ctx, "x", source.SearchOptions{Page: 1}); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("Search = %v, want ErrUnavailable", err)
 	}
 }
@@ -472,7 +472,7 @@ func TestCancelStaysCanceled(t *testing.T) {
 	s, _ := serve(t, false, reply(200, fixture(t, "search.json")))
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := s.Search(ctx, "x", 1)
+	_, err := s.Search(ctx, "x", source.SearchOptions{Page: 1})
 	if !errors.Is(err, context.Canceled) || errors.Is(err, ErrUnavailable) {
 		t.Fatalf("Search = %v, want context.Canceled", err)
 	}

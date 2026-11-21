@@ -184,22 +184,22 @@ func TestSearchCache(t *testing.T) {
 				if err := os.MkdirAll(filepath.Join(cacheDir, "booxd", "cache"), 0o755); err != nil {
 					t.Fatal(err)
 				}
-				if err := os.WriteFile(filepath.Join(cacheDir, "booxd", "cache", cache.SearchKey(source.Anna, "test", 1)+".json"), []byte("broken"), 0o600); err != nil {
+				if err := os.WriteFile(filepath.Join(cacheDir, "booxd", "cache", cache.SearchKey(source.Anna, "test", source.SearchOptions{Page: 1})+".json"), []byte("broken"), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			}
 			if tc.name == "sweep on startup" {
-				if err := store.Put(cache.Entry{Key: cache.SearchKey(source.Anna, "old", 1), Query: "old", Page: 1, FetchedAt: time.Now().Add(-31 * 24 * time.Hour), Body: []byte(card)}); err != nil {
+				if err := store.Put(cache.Entry{Key: cache.SearchKey(source.Anna, "old", source.SearchOptions{Page: 1}), Query: "old", Page: 1, FetchedAt: time.Now().Add(-31 * 24 * time.Hour), Body: []byte(card)}); err != nil {
 					t.Fatal(err)
 				}
-				oldPath := filepath.Join(cacheDir, "booxd", "cache", cache.SearchKey(source.Anna, "old", 1)+".json")
+				oldPath := filepath.Join(cacheDir, "booxd", "cache", cache.SearchKey(source.Anna, "old", source.SearchOptions{Page: 1})+".json")
 				old := time.Now().Add(-31 * 24 * time.Hour)
 				if err := os.Chtimes(oldPath, old, old); err != nil {
 					t.Fatal(err)
 				}
 			}
 			if tc.seed {
-				if err := store.Put(cache.Entry{Key: cache.SearchKey(source.Anna, "test", 1), Query: "test", Page: 1, Status: 200, FetchedAt: time.Now().Add(-3 * time.Hour), Body: []byte(card)}); err != nil {
+				if err := store.Put(cache.Entry{Key: cache.SearchKey(source.Anna, "test", source.SearchOptions{Page: 1}), Query: "test", Page: 1, Status: 200, FetchedAt: time.Now().Add(-3 * time.Hour), Body: []byte(card)}); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -242,23 +242,23 @@ func TestSearchCache(t *testing.T) {
 				t.Fatalf("fresh hit made requests: %d/%d", clients, resolves)
 			}
 			if tc.name == "no cache" {
-				if entry, ok := store.Get(cache.SearchKey(source.Anna, "test", 1)); !ok || entry.Status != 200 {
+				if entry, ok := store.Get(cache.SearchKey(source.Anna, "test", source.SearchOptions{Page: 1})); !ok || entry.Status != 200 {
 					t.Fatal("successful --no-cache fetch was not stored")
 				}
 			}
 			if tc.name == "corrupt entry refetch" {
-				if _, ok := store.Get(cache.SearchKey(source.Anna, "test", 1)); !ok {
+				if _, ok := store.Get(cache.SearchKey(source.Anna, "test", source.SearchOptions{Page: 1})); !ok {
 					t.Fatal("corrupt entry was not replaced")
 				}
 			}
 			if tc.name == "empty response preserves cached result" {
-				entry, ok := store.Get(cache.SearchKey(source.Anna, "test", 1))
+				entry, ok := store.Get(cache.SearchKey(source.Anna, "test", source.SearchOptions{Page: 1}))
 				if !ok || string(entry.Body) != card {
 					t.Fatal("empty response replaced cached result")
 				}
 			}
 			if tc.name == "sweep on startup" {
-				if _, err := os.Stat(filepath.Join(cacheDir, "booxd", "cache", cache.SearchKey(source.Anna, "old", 1)+".json")); !os.IsNotExist(err) {
+				if _, err := os.Stat(filepath.Join(cacheDir, "booxd", "cache", cache.SearchKey(source.Anna, "old", source.SearchOptions{Page: 1})+".json")); !os.IsNotExist(err) {
 					t.Fatalf("old entry remains: %v", err)
 				}
 			}
