@@ -16,8 +16,6 @@ import (
 // It never resumes: an existing .part is truncated and an existing final file
 // is replaced.
 func (s *Searcher) Fetch(ctx context.Context, b Book, dstPath string) (int64, error) {
-	defer s.Client.ReleaseSearch()
-
 	if dstPath == "" {
 		return 0, fmt.Errorf("source irc: fetch: empty dstPath (book %q)", b.ID)
 	}
@@ -29,13 +27,24 @@ func (s *Searcher) Fetch(ctx context.Context, b Book, dstPath string) (int64, er
 	}
 
 	if err := s.Client.Say(ctx, s.Client.Channel(), b.requestLine()); err != nil {
+		// A rejected or failed send never acquired the slot; releasing here
+		// would free whatever operation holds it.
 		return 0, fmt.Errorf("source irc: fetch %q: %w", b.ID, err)
 	}
+	// The send acquired the slot; release only while this call still owns it,
+	// as in Search.
+	owned := true
+	defer func() {
+		if owned {
+			s.Client.ReleaseSearch()
+		}
+	}()
 
 	offer, err := s.awaitFileOffer(ctx, b)
 	if err != nil {
 		return 0, err
 	}
+	owned = false // the answering offer already freed the slot
 
 	conn, err := s.opener()(ctx, offer)
 	if err != nil {

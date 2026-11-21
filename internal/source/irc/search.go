@@ -18,11 +18,20 @@ var errAwaitTimeout = errors.New("offer wait expired")
 // It sends once: ErrSendTooSoon and ErrSearchPending go back to the caller,
 // which decides when to retry (Q-05).
 func (s *Searcher) Search(ctx context.Context, q string) ([]Book, error) {
-	defer s.Client.ReleaseSearch()
-
 	if err := s.Client.Say(ctx, s.Client.Channel(), "@search "+q); err != nil {
+		// A rejected or failed send never acquired the slot; releasing here
+		// would free whatever operation holds it.
 		return nil, fmt.Errorf("source irc: search %q: %w", q, err)
 	}
+	// The send acquired the slot. The transport frees it when the answering
+	// bot's offer arrives, so past that point the slot may belong to a later
+	// operation: release only while this call still owns it.
+	owned := true
+	defer func() {
+		if owned {
+			s.Client.ReleaseSearch()
+		}
+	}()
 
 	primary := s.SearchBot
 	if primary == "" {
@@ -44,6 +53,7 @@ func (s *Searcher) Search(ctx context.Context, q string) ([]Book, error) {
 			}
 			break
 		}
+		owned = false // the answering offer already freed the slot
 
 		conn, err := s.opener()(ctx, offer)
 		if err != nil {

@@ -43,8 +43,8 @@ func TestFetchHappyPath(t *testing.T) {
 	if len(targets) != 1 || targets[0] != "#ebooks" {
 		t.Fatalf("Say targets = %q, want [#ebooks]", targets)
 	}
-	if n := f.releaseCount(); n != 1 {
-		t.Fatalf("ReleaseSearch calls = %d, want 1", n)
+	if n := f.releaseCount(); n != 0 {
+		t.Fatalf("ReleaseSearch calls = %d, want 0", n)
 	}
 }
 
@@ -206,8 +206,8 @@ func TestFetchValidationAndSayError(t *testing.T) {
 			if _, err := s.Fetch(context.Background(), bad[i], paths[i]); err == nil || !strings.Contains(err.Error(), "source irc: fetch") {
 				t.Fatalf("case %d: error = %v, want source irc: fetch prefix", i, err)
 			}
-			if n := f.releaseCount(); n != 1 {
-				t.Fatalf("case %d: ReleaseSearch calls = %d, want 1", i, n)
+			if n := f.releaseCount(); n != 0 {
+				t.Fatalf("case %d: ReleaseSearch calls = %d, want 0", i, n)
 			}
 		}
 	})
