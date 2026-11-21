@@ -26,17 +26,18 @@ func (s *Searcher) Fetch(ctx context.Context, b Book, dstPath string) (int64, er
 		return 0, fmt.Errorf("source irc: fetch: empty server (book %q)", b.ID)
 	}
 
-	if err := s.Client.Say(ctx, s.Client.Channel(), b.requestLine()); err != nil {
+	slot, err := s.Client.Say(ctx, s.Client.Channel(), b.requestLine())
+	if err != nil {
 		// A rejected or failed send never acquired the slot; releasing here
 		// would free whatever operation holds it.
 		return 0, fmt.Errorf("source irc: fetch %q: %w", b.ID, err)
 	}
-	// The send acquired the slot; release only while this call still owns it,
-	// as in Search.
+	// The send acquired the slot; release only while this call's token still
+	// owns it, as in Search.
 	owned := true
 	defer func() {
 		if owned {
-			s.Client.ReleaseSearch()
+			s.Client.ReleaseSearch(slot)
 		}
 	}()
 

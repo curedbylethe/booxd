@@ -26,7 +26,9 @@ type fakeClient struct {
 	targets  []string // target of each Say
 	said     chan struct{}
 	sayErr   error
-	releases int
+	held     bool   // the transport's search slot is held
+	seq      uint64 // token of the send that holds the slot
+	releases int    // releases that freed a slot its token still owned
 	offers   chan dcc.Offer
 	onSay    func(n int) // optional hook; n is the 1-based Say count
 }
@@ -41,12 +43,18 @@ func newFakeClient(channel string) *fakeClient {
 
 func (f *fakeClient) Channel() string { return f.channel }
 
-func (f *fakeClient) Say(_ context.Context, target, text string) error {
+func (f *fakeClient) Say(_ context.Context, target, text string) (uint64, error) {
 	f.mu.Lock()
 	f.says = append(f.says, text)
 	f.targets = append(f.targets, target)
 	n := len(f.says)
 	err := f.sayErr
+	var slot uint64
+	if err == nil {
+		f.seq++
+		f.held = true
+		slot = f.seq
+	}
 	hook := f.onSay
 	f.mu.Unlock()
 	if err == nil {
@@ -55,15 +63,26 @@ func (f *fakeClient) Say(_ context.Context, target, text string) error {
 			hook(n)
 		}
 	}
-	return err
+	return slot, err
 }
 
 func (f *fakeClient) DCC() <-chan dcc.Offer { return f.offers }
 
-func (f *fakeClient) ReleaseSearch() {
+func (f *fakeClient) ReleaseSearch(slot uint64) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.releases++
+	if f.held && slot == f.seq {
+		f.held = false
+		f.releases++
+	}
+}
+
+// transportFree simulates the transport freeing the slot on its own: the search
+// timeout expired, or a matching message arrived that no call was awaiting.
+func (f *fakeClient) transportFree() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.held = false
 }
 
 // send posts an offer to the buffered channel; it never blocks in a test.

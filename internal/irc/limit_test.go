@@ -67,13 +67,13 @@ func TestSendGap(t *testing.T) {
 		client, f, clk := gateClient(t, 10*time.Second, time.Second)
 		ctx := context.Background()
 
-		if err := client.Say(ctx, "bookbot", "one"); err != nil {
+		if _, err := client.Say(ctx, "bookbot", "one"); err != nil {
 			t.Fatalf("Say at t0: %v", err)
 		}
 		f.collect(1)
 
 		clk.advance(9 * time.Second)
-		err := client.Say(ctx, "bookbot", "two")
+		_, err := client.Say(ctx, "bookbot", "two")
 		if !errors.Is(err, ErrSendTooSoon) {
 			t.Fatalf("Say at t0+9s = %v, want ErrSendTooSoon", err)
 		}
@@ -85,7 +85,7 @@ func TestSendGap(t *testing.T) {
 		}
 
 		clk.advance(time.Second)
-		if err := client.Say(ctx, "bookbot", "three"); err != nil {
+		if _, err := client.Say(ctx, "bookbot", "three"); err != nil {
 			t.Fatalf("Say at t0+10s: %v", err)
 		}
 		f.collect(1)
@@ -95,18 +95,18 @@ func TestSendGap(t *testing.T) {
 		client, f, clk := gateClient(t, 10*time.Second, time.Second)
 		ctx := context.Background()
 
-		if err := client.Say(ctx, "bookbot", "one"); err != nil {
+		if _, err := client.Say(ctx, "bookbot", "one"); err != nil {
 			t.Fatalf("Say at t0: %v", err)
 		}
 		f.collect(1)
 
 		clk.advance(9 * time.Second)
-		if err := client.Say(ctx, "bookbot", "two"); !errors.Is(err, ErrSendTooSoon) {
+		if _, err := client.Say(ctx, "bookbot", "two"); !errors.Is(err, ErrSendTooSoon) {
 			t.Fatalf("Say at t0+9s = %v, want ErrSendTooSoon", err)
 		}
 
 		clk.advance(time.Second)
-		if err := client.Say(ctx, "bookbot", "three"); err != nil {
+		if _, err := client.Say(ctx, "bookbot", "three"); err != nil {
 			t.Fatalf("Say at t0+10s after a rejection: %v", err)
 		}
 		f.collect(1)
@@ -116,13 +116,13 @@ func TestSendGap(t *testing.T) {
 		client, f, _ := gateClient(t, 0, time.Second)
 		ctx := context.Background()
 
-		if err := client.Say(ctx, "bookbot", "one"); err != nil {
+		if _, err := client.Say(ctx, "bookbot", "one"); err != nil {
 			t.Fatalf("first Say: %v", err)
 		}
 		// Release the slot so only the gap is under test.
 		f.write(":bookbot!u@h PRIVMSG booxd :reply\r\n")
 		nextMessage(t, client.Messages())
-		if err := client.Say(ctx, "bookbot", "two"); err != nil {
+		if _, err := client.Say(ctx, "bookbot", "two"); err != nil {
 			t.Fatalf("second Say with no gap: %v", err)
 		}
 		f.collect(2)
@@ -131,7 +131,7 @@ func TestSendGap(t *testing.T) {
 	t.Run("PING is not gated", func(t *testing.T) {
 		client, f, _ := gateClient(t, 10*time.Second, 30*time.Second)
 
-		if err := client.Say(context.Background(), "bookbot", "one"); err != nil {
+		if _, err := client.Say(context.Background(), "bookbot", "one"); err != nil {
 			t.Fatalf("Say: %v", err)
 		}
 		f.collect(1)
@@ -147,27 +147,64 @@ func TestReleaseSearch(t *testing.T) {
 	client, f, _ := gateClient(t, 0, time.Hour)
 	ctx := context.Background()
 
-	if err := client.Say(ctx, "#ebooks", "@search one"); err != nil {
+	slot, err := client.Say(ctx, "#ebooks", "@search one")
+	if err != nil {
 		t.Fatalf("first Say: %v", err)
 	}
 	f.collect(1)
 
 	// A zero gap is fine, but the slot still blocks a second search.
-	if err := client.Say(ctx, "#ebooks", "@search two"); !errors.Is(err, ErrSearchPending) {
+	if _, err := client.Say(ctx, "#ebooks", "@search two"); !errors.Is(err, ErrSearchPending) {
 		t.Fatalf("Say with slot held = %v, want ErrSearchPending", err)
 	}
 
-	client.ReleaseSearch()
-	if err := client.Say(ctx, "#ebooks", "@search two"); err != nil {
+	client.ReleaseSearch(slot)
+	slot2, err := client.Say(ctx, "#ebooks", "@search two")
+	if err != nil {
 		t.Fatalf("Say after ReleaseSearch: %v", err)
 	}
 	f.collect(1)
 
 	// Calling it with nothing pending is safe.
-	client.ReleaseSearch()
-	client.ReleaseSearch()
-	if err := client.Say(ctx, "#ebooks", "@search three"); err != nil {
+	client.ReleaseSearch(slot2)
+	client.ReleaseSearch(slot2)
+	if _, err := client.Say(ctx, "#ebooks", "@search three"); err != nil {
 		t.Fatalf("Say after redundant ReleaseSearch: %v", err)
+	}
+	f.collect(1)
+}
+
+func TestReleaseSearchStaleToken(t *testing.T) {
+	// The first send's slot expired and a later send acquired it; the stale
+	// token must not clear the later send's slot.
+	client, f, clk := gateClient(t, 10*time.Second, 30*time.Second)
+	ctx := context.Background()
+
+	stale, err := client.Say(ctx, "#ebooks", "@search one")
+	if err != nil {
+		t.Fatalf("first Say: %v", err)
+	}
+	f.collect(1)
+
+	// t0+31s: the first slot's 30s timeout expired, so a later send acquires it.
+	clk.advance(31 * time.Second)
+	fresh, err := client.Say(ctx, "#ebooks", "@search two")
+	if err != nil {
+		t.Fatalf("second Say: %v", err)
+	}
+	f.collect(1)
+
+	client.ReleaseSearch(stale)
+	// t0+42s: past the 10s send gap, still inside the second slot's window.
+	clk.advance(11 * time.Second)
+	if _, err := client.Say(ctx, "#ebooks", "@search three"); !errors.Is(err, ErrSearchPending) {
+		t.Fatalf("Say after a stale release = %v, want ErrSearchPending", err)
+	}
+
+	client.ReleaseSearch(fresh)
+	clk.advance(time.Second)
+	if _, err := client.Say(ctx, "#ebooks", "@search three"); err != nil {
+		t.Fatalf("Say after the owner's release: %v", err)
 	}
 	f.collect(1)
 }
@@ -177,13 +214,13 @@ func TestSearchSlot(t *testing.T) {
 		client, f, clk := gateClient(t, 10*time.Second, 30*time.Second)
 		ctx := context.Background()
 
-		if err := client.Say(ctx, "bookbot", "search one"); err != nil {
+		if _, err := client.Say(ctx, "bookbot", "search one"); err != nil {
 			t.Fatalf("Say at t0: %v", err)
 		}
 		f.collect(1)
 
 		clk.advance(10 * time.Second)
-		if err := client.Say(ctx, "bookbot", "search two"); !errors.Is(err, ErrSearchPending) {
+		if _, err := client.Say(ctx, "bookbot", "search two"); !errors.Is(err, ErrSearchPending) {
 			t.Fatalf("Say at t0+10s = %v, want ErrSearchPending", err)
 		}
 		if lines := f.drain(); len(lines) != 0 {
@@ -193,7 +230,7 @@ func TestSearchSlot(t *testing.T) {
 		f.write(":bookbot!u@h PRIVMSG booxd :no results\r\n")
 		nextMessage(t, client.Messages()) // the reader has released the slot
 
-		if err := client.Say(ctx, "bookbot", "search three"); err != nil {
+		if _, err := client.Say(ctx, "bookbot", "search three"); err != nil {
 			t.Fatalf("Say after the reply: %v", err)
 		}
 		f.collect(1)
@@ -203,7 +240,7 @@ func TestSearchSlot(t *testing.T) {
 		client, f, clk := gateClient(t, 10*time.Second, 30*time.Second)
 		ctx := context.Background()
 
-		if err := client.Say(ctx, "bookbot", "search one"); err != nil {
+		if _, err := client.Say(ctx, "bookbot", "search one"); err != nil {
 			t.Fatalf("Say at t0: %v", err)
 		}
 		f.collect(1)
@@ -212,7 +249,7 @@ func TestSearchSlot(t *testing.T) {
 		f.write(":bookbot!u@h NOTICE booxd :search unavailable\r\n")
 		nextMessage(t, client.Messages())
 
-		if err := client.Say(ctx, "bookbot", "search two"); err != nil {
+		if _, err := client.Say(ctx, "bookbot", "search two"); err != nil {
 			t.Fatalf("Say after the notice: %v", err)
 		}
 		f.collect(1)
@@ -222,18 +259,18 @@ func TestSearchSlot(t *testing.T) {
 		client, f, clk := gateClient(t, 10*time.Second, 30*time.Second)
 		ctx := context.Background()
 
-		if err := client.Say(ctx, "bookbot", "search one"); err != nil {
+		if _, err := client.Say(ctx, "bookbot", "search one"); err != nil {
 			t.Fatalf("Say at t0: %v", err)
 		}
 		f.collect(1)
 
 		clk.advance(10 * time.Second)
-		if err := client.Say(ctx, "bookbot", "search two"); !errors.Is(err, ErrSearchPending) {
+		if _, err := client.Say(ctx, "bookbot", "search two"); !errors.Is(err, ErrSearchPending) {
 			t.Fatalf("Say at t0+10s = %v, want ErrSearchPending", err)
 		}
 
 		clk.advance(21 * time.Second)
-		if err := client.Say(ctx, "bookbot", "search three"); err != nil {
+		if _, err := client.Say(ctx, "bookbot", "search three"); err != nil {
 			t.Fatalf("Say at t0+31s: %v", err)
 		}
 		f.collect(1)
@@ -243,19 +280,19 @@ func TestSearchSlot(t *testing.T) {
 		client, f, clk := gateClient(t, 10*time.Second, 2*time.Minute)
 		ctx := context.Background()
 
-		if err := client.Say(ctx, "#ebooks", "search one"); err != nil {
+		if _, err := client.Say(ctx, "#ebooks", "search one"); err != nil {
 			t.Fatalf("Say at t0: %v", err)
 		}
 		f.collect(1)
 
 		// The bot answers from its own nick, which cannot match the channel.
 		clk.advance(10 * time.Second)
-		if err := client.Say(ctx, "#ebooks", "search two"); !errors.Is(err, ErrSearchPending) {
+		if _, err := client.Say(ctx, "#ebooks", "search two"); !errors.Is(err, ErrSearchPending) {
 			t.Fatalf("Say at t0+10s = %v, want ErrSearchPending", err)
 		}
 
 		clk.advance(2 * time.Minute)
-		if err := client.Say(ctx, "#ebooks", "search three"); err != nil {
+		if _, err := client.Say(ctx, "#ebooks", "search three"); err != nil {
 			t.Fatalf("Say after the timeout: %v", err)
 		}
 		f.collect(1)
@@ -265,7 +302,7 @@ func TestSearchSlot(t *testing.T) {
 		client, f, clk := gateClient(t, 10*time.Second, 2*time.Minute)
 		ctx := context.Background()
 
-		if err := client.Say(ctx, "#ebooks", "search one"); err != nil {
+		if _, err := client.Say(ctx, "#ebooks", "search one"); err != nil {
 			t.Fatalf("Say at t0: %v", err)
 		}
 		f.collect(1)
@@ -274,7 +311,7 @@ func TestSearchSlot(t *testing.T) {
 		f.write(":bookbot!u@h PRIVMSG booxd :no results\r\n")
 		nextMessage(t, client.Messages())
 
-		if err := client.Say(ctx, "#ebooks", "search two"); err != nil {
+		if _, err := client.Say(ctx, "#ebooks", "search two"); err != nil {
 			t.Fatalf("Say after the reply: %v", err)
 		}
 		f.collect(1)
@@ -284,7 +321,7 @@ func TestSearchSlot(t *testing.T) {
 		client, f, clk := gateClient(t, 10*time.Second, 2*time.Minute)
 		ctx := context.Background()
 
-		if err := client.Say(ctx, "#ebooks", "search one"); err != nil {
+		if _, err := client.Say(ctx, "#ebooks", "search one"); err != nil {
 			t.Fatalf("Say at t0: %v", err)
 		}
 		f.collect(1)
@@ -293,7 +330,7 @@ func TestSearchSlot(t *testing.T) {
 		f.write(":bookbot!u@h PRIVMSG booxd :\x01DCC SEND x 3405803785 5000 1\x01\r\n")
 		nextMessage(t, client.Messages())
 
-		if err := client.Say(ctx, "#ebooks", "download"); err != nil {
+		if _, err := client.Say(ctx, "#ebooks", "download"); err != nil {
 			t.Fatalf("Say after the offer: %v", err)
 		}
 		f.collect(1)
@@ -303,7 +340,7 @@ func TestSearchSlot(t *testing.T) {
 		client, f, clk := gateClient(t, 10*time.Second, 30*time.Second)
 		ctx := context.Background()
 
-		if err := client.Say(ctx, "bookbot", "search one"); err != nil {
+		if _, err := client.Say(ctx, "bookbot", "search one"); err != nil {
 			t.Fatalf("Say at t0: %v", err)
 		}
 		f.collect(1)
@@ -312,7 +349,7 @@ func TestSearchSlot(t *testing.T) {
 		f.write(":otherbot!u@h PRIVMSG booxd :unrelated\r\n")
 		nextMessage(t, client.Messages())
 
-		if err := client.Say(ctx, "bookbot", "search two"); !errors.Is(err, ErrSearchPending) {
+		if _, err := client.Say(ctx, "bookbot", "search two"); !errors.Is(err, ErrSearchPending) {
 			t.Fatalf("Say after another nick spoke = %v, want ErrSearchPending", err)
 		}
 	})
@@ -321,7 +358,7 @@ func TestSearchSlot(t *testing.T) {
 		client, f, clk := gateClient(t, 10*time.Second, 30*time.Second)
 		ctx := context.Background()
 
-		if err := client.Say(ctx, "bookbot", "search one"); err != nil {
+		if _, err := client.Say(ctx, "bookbot", "search one"); err != nil {
 			t.Fatalf("Say at t0: %v", err)
 		}
 		f.collect(1)
@@ -329,7 +366,7 @@ func TestSearchSlot(t *testing.T) {
 		clk.advance(10 * time.Second)
 		f.write(":bookbot!u@h PRIVMSG booxd :\x01DCC SEND x 3405803785 5000 1\x01\r\n")
 		nextMessage(t, client.Messages())
-		if err := client.Say(ctx, "bookbot", "search two"); err != nil {
+		if _, err := client.Say(ctx, "bookbot", "search two"); err != nil {
 			t.Fatalf("Say after an offer from the search bot: %v", err)
 		}
 		f.collect(1)
@@ -339,7 +376,7 @@ func TestSearchSlot(t *testing.T) {
 		client, f, clk := gateClient(t, 10*time.Second, 30*time.Second)
 		ctx := context.Background()
 
-		if err := client.Say(ctx, "bookbot", "search one"); err != nil {
+		if _, err := client.Say(ctx, "bookbot", "search one"); err != nil {
 			t.Fatalf("Say at t0: %v", err)
 		}
 		f.collect(1)
@@ -347,7 +384,7 @@ func TestSearchSlot(t *testing.T) {
 		clk.advance(10 * time.Second)
 		f.write(":otherbot!u@h PRIVMSG booxd :\x01DCC SEND x 3405803785 5000 1\x01\r\n")
 		nextMessage(t, client.Messages())
-		if err := client.Say(ctx, "bookbot", "search two"); !errors.Is(err, ErrSearchPending) {
+		if _, err := client.Say(ctx, "bookbot", "search two"); !errors.Is(err, ErrSearchPending) {
 			t.Fatalf("Say after an offer from another nick = %v, want ErrSearchPending", err)
 		}
 	})
@@ -356,19 +393,19 @@ func TestSearchSlot(t *testing.T) {
 		client, f, clk := gateClient(t, 10*time.Second, 0)
 		ctx := context.Background()
 
-		if err := client.Say(ctx, "bookbot", "search one"); err != nil {
+		if _, err := client.Say(ctx, "bookbot", "search one"); err != nil {
 			t.Fatalf("Say at t0: %v", err)
 		}
 		f.collect(1)
 
 		clk.advance(time.Hour)
-		if err := client.Say(ctx, "bookbot", "search two"); !errors.Is(err, ErrSearchPending) {
+		if _, err := client.Say(ctx, "bookbot", "search two"); !errors.Is(err, ErrSearchPending) {
 			t.Fatalf("Say an hour later = %v, want ErrSearchPending", err)
 		}
 
 		f.write(":bookbot!u@h PRIVMSG booxd :reply\r\n")
 		nextMessage(t, client.Messages())
-		if err := client.Say(ctx, "bookbot", "search three"); err != nil {
+		if _, err := client.Say(ctx, "bookbot", "search three"); err != nil {
 			t.Fatalf("Say after the reply: %v", err)
 		}
 		f.collect(1)
