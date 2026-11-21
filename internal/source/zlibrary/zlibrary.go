@@ -168,6 +168,11 @@ func (e *envelope) message() string {
 
 // decode classifies resp and, on success, fills v.
 func decode(resp *fetch.Response, v interface{ env() *envelope }) error {
+	// 513 and 517 are the challenge wall; the body is a page, not JSON, and
+	// fetch passes them through unretried so they land here on the first try.
+	if resp.StatusCode == 513 || resp.StatusCode == 517 {
+		return fmt.Errorf("%w (status %d)", ErrChallenged, resp.StatusCode)
+	}
 	ok := resp.StatusCode/100 == 2
 	if json.Unmarshal(resp.Body, v) != nil {
 		if bytes.HasPrefix(bytes.TrimSpace(resp.Body), []byte("<")) {

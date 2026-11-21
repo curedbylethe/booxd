@@ -328,7 +328,9 @@ func (c *Client) send(ctx context.Context, method string, u *url.URL, body io.Re
 		}
 		st.streak = 0
 		last429 = nil
-		if result.StatusCode >= 500 && result.StatusCode <= 599 {
+		// 513 and 517 are zlibrary challenge statuses, not transient failures:
+		// the body is the challenge page, so a retry cannot succeed.
+		if result.StatusCode >= 500 && result.StatusCode <= 599 && result.StatusCode != 513 && result.StatusCode != 517 {
 			if attempt < maxAttempts {
 				_, readErr := io.Copy(io.Discard, resp.Body)
 				_ = resp.Body.Close()

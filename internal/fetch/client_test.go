@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -491,6 +492,30 @@ func TestGet5xxRetry(t *testing.T) {
 				}
 			} else if err == nil || !strings.Contains(err.Error(), "503") || !strings.Contains(err.Error(), strings.TrimPrefix(server.URL, "http://")) {
 				t.Fatalf("error %v", err)
+			}
+		})
+	}
+}
+
+// Z-Library challenge statuses must not burn the retry budget: the body is
+// the challenge page, so retrying returns the same page every time.
+func TestGetChallengeStatusNoRetry(t *testing.T) {
+	for _, code := range []int{513, 517} {
+		t.Run(strconv.Itoa(code), func(t *testing.T) {
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				calls.Add(1)
+				w.WriteHeader(code)
+				_, _ = io.WriteString(w, "<html>Checking your browser</html>")
+			}))
+			defer server.Close()
+			clock := &fakeClock{now: time.Unix(1, 0)}
+			resp, err := New(WithClock(clock), WithInterval(0)).Get(context.Background(), server.URL)
+			if calls.Load() != 1 || len(clock.waits) != 0 {
+				t.Fatalf("calls %d waits %v", calls.Load(), clock.waits)
+			}
+			if err != nil || resp.StatusCode != code {
+				t.Fatalf("response %v error %v", resp, err)
 			}
 		})
 	}
