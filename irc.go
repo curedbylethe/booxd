@@ -4,11 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/curedbylethe/booxd/internal/config"
@@ -30,7 +28,7 @@ type ircSearcher interface {
 var newIRCSearcher = dialIRC
 
 func dialIRC(ctx context.Context, cfg config.Config, log io.Writer) (ircSearcher, func() error, error) {
-	host, port, err := splitServer(cfg.IRCServer)
+	host, port, err := config.IRCServerAddr(cfg.IRCServer, "irc server")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -48,18 +46,6 @@ func dialIRC(ctx context.Context, cfg config.Config, log io.Writer) (ircSearcher
 		return nil, nil, err
 	}
 	return sourceirc.New(client), client.Close, nil
-}
-
-func splitServer(addr string) (host string, port int, err error) {
-	host, raw, err := net.SplitHostPort(addr)
-	if err != nil || host == "" {
-		return "", 0, fmt.Errorf("irc server must be host:port")
-	}
-	port, err = strconv.Atoi(raw)
-	if err != nil || port < 1 || port > 65535 {
-		return "", 0, fmt.Errorf("irc server port must be 1-65535")
-	}
-	return host, port, nil
 }
 
 func searchIRC(cfg config.Config, query string, log, stdout, stderr io.Writer) int {

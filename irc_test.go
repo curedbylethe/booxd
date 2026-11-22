@@ -175,33 +175,6 @@ func TestSearchIRCFlags(t *testing.T) {
 	}
 }
 
-func TestSplitServer(t *testing.T) {
-	for _, tt := range []struct {
-		addr, host string
-		port       int
-		ok         bool
-	}{
-		{addr: "irc.example.org:6697", host: "irc.example.org", port: 6697, ok: true},
-		{addr: "irc.example.org"},
-		{addr: "irc.example.org:chat"},
-		{addr: "irc.example.org:0"},
-		{addr: "irc.example.org:70000"},
-	} {
-		t.Run(tt.addr, func(t *testing.T) {
-			host, port, err := splitServer(tt.addr)
-			if tt.ok {
-				if err != nil || host != tt.host || port != tt.port {
-					t.Fatalf("splitServer(%q) = %q %d %v; want %q %d nil", tt.addr, host, port, err, tt.host, tt.port)
-				}
-				return
-			}
-			if err == nil {
-				t.Fatalf("splitServer(%q) = %q %d nil; want an error", tt.addr, host, port)
-			}
-		})
-	}
-}
-
 func TestSearchIRCDoesNotTouchHTTP(t *testing.T) {
 	ircEnvironment(t)
 	stubIRCSearcher(t, &fakeIRCSearcher{books: []sourceirc.Book{ircTestBook()}}, func() error { return nil }, nil)
