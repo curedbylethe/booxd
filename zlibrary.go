@@ -32,8 +32,9 @@ func parseSourceFlag(raw string, stderr io.Writer) (source.Name, bool) {
 	return name, true
 }
 
-// annaOnly reports false, after naming the flag, when an Anna-only flag was set.
-func annaOnly(flags *flag.FlagSet, stderr io.Writer, names ...string) bool {
+// onlyFor reports false, after naming the flag, when a flag reserved for one
+// source was set on another source.
+func onlyFor(flags *flag.FlagSet, stderr io.Writer, provider string, names ...string) bool {
 	set := ""
 	flags.Visit(func(f *flag.Flag) {
 		for _, name := range names {
@@ -43,28 +44,21 @@ func annaOnly(flags *flag.FlagSet, stderr io.Writer, names ...string) bool {
 		}
 	})
 	if set != "" {
-		_, _ = fmt.Fprintf(stderr, "booxd: --%s applies to anna only\n", set)
+		_, _ = fmt.Fprintf(stderr, "booxd: --%s applies to %s only\n", set, provider)
 		return false
 	}
 	return true
 }
 
+// annaOnly reports false, after naming the flag, when an Anna-only flag was set.
+func annaOnly(flags *flag.FlagSet, stderr io.Writer, names ...string) bool {
+	return onlyFor(flags, stderr, "anna", names...)
+}
+
 // zlibraryOnly reports false, after naming the flag, when a Z-Library-only
 // filter flag was set on another source.
 func zlibraryOnly(flags *flag.FlagSet, stderr io.Writer, names ...string) bool {
-	set := ""
-	flags.Visit(func(f *flag.Flag) {
-		for _, name := range names {
-			if set == "" && f.Name == name {
-				set = name
-			}
-		}
-	})
-	if set != "" {
-		_, _ = fmt.Fprintf(stderr, "booxd: --%s applies to zlibrary only\n", set)
-		return false
-	}
-	return true
+	return onlyFor(flags, stderr, "zlibrary", names...)
 }
 
 // originJar scopes a loaded cookie jar to the [zlibrary] base URL: the file's
