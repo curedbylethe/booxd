@@ -178,11 +178,10 @@ func applyFile(c Config, f fileConfig) (Config, error) {
 		c.ZLibrarySessionFile = *f.ZLibrary.SessionFile
 	}
 	if f.IRC.Server != nil {
-		v, err := parseIRCServer(*f.IRC.Server, "irc server")
-		if err != nil {
+		if _, _, err := IRCServerAddr(*f.IRC.Server, "irc server"); err != nil {
 			return c, err
 		}
-		c.IRCServer = v
+		c.IRCServer = *f.IRC.Server
 	}
 	if f.IRC.Nick != nil {
 		if *f.IRC.Nick == "" {
@@ -241,11 +240,10 @@ func applyEnvironment(c Config) (Config, error) {
 		}
 	}
 	if value, ok := os.LookupEnv("BOOXD_IRC_SERVER"); ok && value != "" {
-		v, err := parseIRCServer(value, "BOOXD_IRC_SERVER")
-		if err != nil {
+		if _, _, err := IRCServerAddr(value, "BOOXD_IRC_SERVER"); err != nil {
 			return c, err
 		}
-		c.IRCServer = v
+		c.IRCServer = value
 	}
 	if value, ok := os.LookupEnv("BOOXD_IRC_CHANNEL"); ok && value != "" {
 		if !strings.HasPrefix(value, "#") {
@@ -297,16 +295,18 @@ func validateMirrors(values []string, field string) ([]string, error) {
 	return result, nil
 }
 
-func parseIRCServer(raw, field string) (string, error) {
-	host, port, err := net.SplitHostPort(raw)
+// IRCServerAddr validates an IRC server address of the form host:port.
+// field names the setting in error messages.
+func IRCServerAddr(raw, field string) (host string, port int, err error) {
+	host, portStr, err := net.SplitHostPort(raw)
 	if err != nil || host == "" {
-		return "", fmt.Errorf("%s must be host:port", field)
+		return "", 0, fmt.Errorf("%s must be host:port", field)
 	}
-	n, err := strconv.Atoi(port)
-	if err != nil || n < 1 || n > 65535 {
-		return "", fmt.Errorf("%s must be host:port", field)
+	port, err = strconv.Atoi(portStr)
+	if err != nil || port < 1 || port > 65535 {
+		return "", 0, fmt.Errorf("%s must be host:port", field)
 	}
-	return raw, nil
+	return host, port, nil
 }
 
 func parseProxy(raw, field string) (*url.URL, error) {
