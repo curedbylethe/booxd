@@ -120,6 +120,10 @@ func getIRC(cfg config.Config, ref source.Ref, open bool, log, stdout, stderr io
 	if info, statErr := os.Stat(dst); statErr == nil && info.Mode().IsRegular() && info.Size() > 0 {
 		return finishGet(stdout, stderr, dst, down.ErrExists, open)
 	}
+	if err := os.MkdirAll(cfg.DownloadDir, 0o755); err != nil {
+		_, _ = fmt.Fprintf(stderr, "booxd: %v\n", err)
+		return 1
+	}
 
 	baseCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()

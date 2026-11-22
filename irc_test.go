@@ -317,6 +317,32 @@ func TestGetIRCCancel(t *testing.T) {
 	}
 }
 
+func TestGetIRCCreatesDownloadDir(t *testing.T) {
+	base := ircEnvironment(t)
+	dir := filepath.Join(base, "downloads", "irc")
+	t.Setenv("BOOXD_DOWNLOAD_DIR", dir)
+	wantPath := filepath.Join(dir, "The Last Hero.pdf")
+	f := &fakeIRCSearcher{fetch: func(_ context.Context, _ sourceirc.Book, dst string) (int64, error) {
+		if err := os.WriteFile(dst, []byte("book"), 0o644); err != nil {
+			return 0, err
+		}
+		return 4, nil
+	}}
+	h := stubIRCSearcher(t, f, func() error { return nil }, nil)
+	resolve, newClient, resolves, clients := countingSeams()
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"get", ircRef()}, &stdout, &stderr, resolve, newClient)
+	if code != 0 || stdout.String() != "saved "+wantPath+"\n" || stderr.String() != ircRequesting {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if h.calls != 1 || f.fetchCalls != 1 || *resolves != 0 || *clients != 0 {
+		t.Fatalf("dial=%d fetch=%d resolver=%d client=%d", h.calls, f.fetchCalls, *resolves, *clients)
+	}
+	if body, err := os.ReadFile(wantPath); err != nil || string(body) != "book" {
+		t.Fatalf("saved body=%q err=%v", body, err)
+	}
+}
+
 func TestGetIRCRestart(t *testing.T) {
 	dir := ircEnvironment(t)
 	wantPath := filepath.Join(dir, "The Last Hero.pdf")
