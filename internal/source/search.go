@@ -16,7 +16,8 @@ type SearchOptions struct {
 
 // Key renders a stable identity: page, then languages, then formats. The two
 // slices are sets, so their order and duplicates do not change the key. Values
-// are not normalised.
+// are not normalised. Sets are joined with \x01, sections with \x00, so no
+// value can slide across a section boundary.
 func (o SearchOptions) Key() string {
 	return strconv.Itoa(o.Page) + "\x00" + setKey(o.Languages) + "\x00" + setKey(o.Formats)
 }
@@ -30,5 +31,5 @@ func setKey(values []string) string {
 			unique = append(unique, value)
 		}
 	}
-	return strings.Join(unique, "\x00")
+	return strings.Join(unique, "\x01")
 }

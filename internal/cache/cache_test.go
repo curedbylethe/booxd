@@ -25,6 +25,7 @@ func TestKeys(t *testing.T) {
 		{"formats differ", SearchKey(source.Anna, "q", source.SearchOptions{Page: 1, Formats: []string{"epub"}}), SearchKey(source.Anna, "q", source.SearchOptions{Page: 1, Formats: []string{"pdf"}}), false},
 		{"language order is irrelevant", SearchKey(source.Anna, "q", source.SearchOptions{Page: 1, Languages: []string{"en", "fa"}}), SearchKey(source.Anna, "q", source.SearchOptions{Page: 1, Languages: []string{"fa", "en"}}), true},
 		{"duplicate languages are irrelevant", SearchKey(source.Anna, "q", source.SearchOptions{Page: 1, Languages: []string{"en", "en"}}), SearchKey(source.Anna, "q", source.SearchOptions{Page: 1, Languages: []string{"en"}}), true},
+		{"filter sets do not join across sections", SearchKey(source.Anna, "q", source.SearchOptions{Page: 1, Languages: []string{"a", "b"}, Formats: []string{"c"}}), SearchKey(source.Anna, "q", source.SearchOptions{Page: 1, Languages: []string{"a"}, Formats: []string{"b", "c"}}), false},
 		{"same id across sources differs", RefKey(anna), RefKey(zlib), false},
 		{"hash differs", RefKey(zlib), RefKey(source.Ref{Source: source.ZLibrary, ID: "1234", Hash: "cd"}), false},
 		{"search and detail differ", SearchKey(source.Anna, "1234", source.SearchOptions{Page: 0}), RefKey(anna), false},
