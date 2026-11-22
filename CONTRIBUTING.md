@@ -39,7 +39,7 @@ The CI workflow runs build, vet, tests, installer checks, and lint on Linux. It 
 | `internal/irc` | Owns the IRC connection, parser, and DCC SEND detection; no HTTP. |
 | `internal/mirror` | Probes mirrors and persists selection and cooldowns. |
 | `internal/parse` | Converts HTML into search records and book details without network access. |
-| `internal/source` | Names where a book comes from, carries its provider-qualified identity, and holds the provider-neutral `Book` and `Detail` display types; no network. |
+| `internal/source` | Names where a book comes from, carries its provider-qualified identity, and holds the provider-neutral `Book`, `Detail`, and `SearchOptions` types; no network. |
 | `internal/source/irc` | Searches `#ebooks` and streams an offered book to a `.part` file; no HTTP. |
 | `internal/source/zlibrary` | Searches the Z-Library EAPI at a caller-supplied base URL, reads details, and resolves a download link through `internal/fetch`. |
 | `internal/tui` | Runs the tcell screen and local book navigation; the caller supplies search. |
