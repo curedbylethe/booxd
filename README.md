@@ -167,8 +167,8 @@ Config loads from `booxd/config.toml` under the OS config directory. Flags overr
 | `[irc] server` | `irc.irchighway.net:6697` | IRC `host:port` server for channel search and downloads. |
 | `[irc] nick` | `booxd` | IRC nickname. |
 | `[irc] channel` | `#ebooks` | IRC channel to join; must start with `#`. |
-| `[irc] search_timeout` | `2m` | Positive Go duration to wait for an IRC bot reply. |
-| `[irc] download_timeout` | `30m` | Positive Go duration to wait for an IRC download. |
+| `[irc] search_timeout` | `2m` | Positive Go duration capping the whole `search` command, including dial, register and join; the bot reply wait is fixed at 120s. |
+| `[irc] download_timeout` | `30m` | Positive Go duration capping the whole `get` command, including dial, register and join; the bot offer wait is fixed at 180s. |
 
 Environment: `BOOXD_CONFIG`, `BOOXD_MIRRORS`, `BOOXD_DOWNLOAD_DIR`, `BOOXD_CACHE_DIR`, `BOOXD_PROXY`, `BOOXD_USER_AGENT`, `BOOXD_REQUEST_TIMEOUT`, `BOOXD_PER_HOST_INTERVAL`, `BOOXD_NO_UPDATE_CHECK`, `BOOXD_ZLIBRARY_BASE_URL`, `BOOXD_ZLIBRARY_SESSION_FILE`, `BOOXD_IRC_SERVER`, `BOOXD_IRC_NICK`, `BOOXD_IRC_CHANNEL`, `BOOXD_IRC_SEARCH_TIMEOUT`, `BOOXD_IRC_DOWNLOAD_TIMEOUT`.
 
@@ -235,7 +235,7 @@ Availability is not guaranteed. booxd indexes nothing: it listens in a public IR
 | `down: server sent a web page or an empty body, not a book` | The server answered with a web page, such as a sign-in page, or with nothing. booxd saves no file. Check the session or cookie file, then try again. |
 | `irc: searching #... (experimental source)` | Informational: IRC search is experimental. Wait for the bot's reply; one line is printed per invocation, with no spinner or progress updates. |
 | `booxd: irc: ...` or `booxd: source irc: ...` | Check `[irc] server`, `nick`, `channel`, and `search_timeout` (or their `BOOXD_IRC_*` variables), plus network access. A missing search bot or a malformed archive surfaces here; booxd does not retry. |
-| `no offer from "<nick>" within <duration>` | The requested bot did not answer before `[irc] search_timeout` (or `download_timeout` for `get`). Search again; bots and packs come and go. |
+| `no offer from "<nick>" within <duration>` | The requested bot did not answer within the fixed reply wait (120s for a search archive, 180s for a download offer). The timeout settings cap the whole command; they do not change these waits. Search again; bots and packs come and go. |
 | `wrote N of M bytes; partial kept at ...` | The transfer did not match the bot's offered byte count. The `.part` file is kept; run `get` again to restart from scratch. |
 | `booxd: context canceled` or `booxd: context deadline exceeded` | The transfer was interrupted with Ctrl-C or hit `[irc] download_timeout`. The `.part` file is kept; run `get` again to restart. |
 | `booxd: source irc: reference ... is not a request line` | The `irc:` reference is malformed. Copy the full escaped reference from `search` and quote it on the command line; a bare pack ID is not accepted. |
