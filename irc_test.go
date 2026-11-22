@@ -26,14 +26,18 @@ type fakeIRCSearcher struct {
 	books      []sourceirc.Book
 	err        error
 	fetch      func(context.Context, sourceirc.Book, string) (int64, error)
+	search     func(context.Context, string) ([]sourceirc.Book, error)
 	calls      int
 	fetchCalls int
 	fetched    sourceirc.Book
 	dstPath    string
 }
 
-func (f *fakeIRCSearcher) Search(context.Context, string) ([]sourceirc.Book, error) {
+func (f *fakeIRCSearcher) Search(ctx context.Context, query string) ([]sourceirc.Book, error) {
 	f.calls++
+	if f.search != nil {
+		return f.search(ctx, query)
+	}
 	return f.books, f.err
 }
 
@@ -314,6 +318,26 @@ func TestGetIRCCancel(t *testing.T) {
 	}
 	if f.fetchCalls != 1 || cleaned != 1 || *resolves != 0 || *clients != 0 {
 		t.Fatalf("fetch=%d cleanup=%d resolver=%d client=%d", f.fetchCalls, cleaned, *resolves, *clients)
+	}
+}
+
+func TestSearchIRCCancel(t *testing.T) {
+	ircEnvironment(t)
+	t.Setenv("BOOXD_IRC_SEARCH_TIMEOUT", "1ms")
+	cleaned := 0
+	f := &fakeIRCSearcher{search: func(ctx context.Context, _ string) ([]sourceirc.Book, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}}
+	stubIRCSearcher(t, f, func() error { cleaned++; return nil }, nil)
+	resolve, newClient, resolves, clients := countingSeams()
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"search", "--source", "irc", "pratchett"}, &stdout, &stderr, resolve, newClient)
+	if code != 1 || stdout.Len() != 0 || stderr.String() != ircNotice+"booxd: context deadline exceeded\n" {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if f.calls != 1 || cleaned != 1 || *resolves != 0 || *clients != 0 {
+		t.Fatalf("search=%d cleanup=%d resolver=%d client=%d", f.calls, cleaned, *resolves, *clients)
 	}
 }
 

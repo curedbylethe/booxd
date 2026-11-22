@@ -64,7 +64,9 @@ func splitServer(addr string) (host string, port int, err error) {
 
 func searchIRC(cfg config.Config, query string, log, stdout, stderr io.Writer) int {
 	_, _ = fmt.Fprintf(stderr, "irc: searching %s (experimental source)\n", cfg.IRCChannel)
-	ctx, cancel := context.WithTimeout(context.Background(), cfg.IRCSearchTimeout)
+	baseCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	ctx, cancel := context.WithTimeout(baseCtx, cfg.IRCSearchTimeout)
 	defer cancel()
 	s, cleanup, err := newIRCSearcher(ctx, cfg, log)
 	defer func() {
